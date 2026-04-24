@@ -1,0 +1,251 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+// ─── Tenant ─────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id           String   @id @default(cuid())
+  slug         String   @unique // e.g. "mama-njeri" → hudumalynk.com/mama-njeri
+  businessName String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users         User[]
+  providers     Provider[]
+  services      Service[]
+  requests      Request[]
+  products      Product[]
+  sales         Sale[]
+  expenses      Expense[]
+  logs          ActivityLog[]
+  subscription  Subscription?
+}
+
+// ─── User ────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  name         String
+  phone        String   @unique
+  email        String?  @unique
+  passwordHash String
+  role         Role     @default(PROVIDER)
+  phoneVerified Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  provider     Provider?
+  requests     Request[]  @relation("CustomerRequests")
+
+  @@index([tenantId])
+}
+
+enum Role {
+  CUSTOMER
+  PROVIDER
+  SUPER_ADMIN
+}
+
+// ─── Provider Profile ────────────────────────────────────────────────────────
+
+model Provider {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id])
+  businessName String
+  category     String
+  description  String?  @db.Text
+  county       String   // one of Kenya's 47 counties
+  location     String   // sub-county / estate free text
+  phone        String
+  whatsapp     String?
+  photoUrl     String?
+  workingHours Json?    // { mon: "8am-6pm", tue: "8am-6pm", ... }
+  isVerified   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  services     Service[]
+  requests     Request[]
+
+  @@index([tenantId])
+  @@index([county])
+  @@index([category])
+}
+
+// ─── Service ─────────────────────────────────────────────────────────────────
+
+model Service {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id])
+  name        String
+  description String?  @db.Text
+  price       Decimal? @db.Decimal(10, 2)
+  duration    Int?     // minutes
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  requests    Request[]
+
+  @@index([tenantId])
+  @@index([providerId])
+}
+
+// ─── Request ─────────────────────────────────────────────────────────────────
+
+model Request {
+  id           String        @id @default(cuid())
+  tenantId     String
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  customerId   String
+  customer     User          @relation("CustomerRequests", fields: [customerId], references: [id])
+  providerId   String
+  provider     Provider      @relation(fields: [providerId], references: [id])
+  serviceId    String?
+  service      Service?      @relation(fields: [serviceId], references: [id])
+  customerName String
+  customerPhone String
+  message      String?       @db.Text
+  status       RequestStatus @default(PENDING)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([tenantId])
+  @@index([providerId])
+  @@index([customerId])
+}
+
+enum RequestStatus {
+  PENDING
+  ACCEPTED
+  COMPLETED
+  CANCELLED
+}
+
+// ─── Inventory ───────────────────────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  sku         String?
+  description String?  @db.Text
+  price       Decimal  @db.Decimal(10, 2)
+  stockLevel  Int      @default(0)
+  minLevel    Int      @default(5)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sales       SaleItem[]
+
+  @@index([tenantId])
+}
+
+// ─── Transactions ────────────────────────────────────────────────────────────
+
+model Sale {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  customerName String?
+  totalAmount  Decimal  @db.Decimal(10, 2)
+  paymentMethod String  @default("CASH") // CASH, MPESA, CARD
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items        SaleItem[]
+
+  @@index([tenantId])
+}
+
+model SaleItem {
+  id        String   @id @default(cuid())
+  saleId    String
+  sale      Sale     @relation(fields: [saleId], references: [id])
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  name      String   // Snapshot of product name
+  quantity  Int
+  price     Decimal  @db.Decimal(10, 2) // Snapshot of price
+
+  @@index([saleId])
+  @@index([productId])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  category    String   // Rent, Stock, Electricity, etc.
+  description String?
+  amount      Decimal  @db.Decimal(10, 2)
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// ─── Logs ───────────────────────────────────────────────────────────────────
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  action    String   // "Sale recorded", "Stock updated", etc.
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// ─── Subscription ─────────────────────────────────────────────────────────────
+
+model Subscription {
+  id           String             @id @default(cuid())
+  tenantId     String             @unique
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  planName     PlanName           @default(TRIAL)
+  status       SubscriptionStatus @default(TRIAL)
+  startDate    DateTime           @default(now())
+  endDate      DateTime?
+  trialEndDate DateTime
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([tenantId])
+}
+
+enum PlanName {
+  TRIAL
+  BASIC
+  PRO
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
