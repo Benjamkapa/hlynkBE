@@ -111,8 +111,18 @@ export async function uploadProfilePhoto(userId: string, tenantId: string, buffe
   // For now, we'll use a placeholder or data URI (not recommended for production but works for MVP)
   const photoUrl = `data:${mimetype};base64,${buffer.toString('base64')}`
   
-  return prisma.provider.update({
-    where: { userId },
+  await prisma.user.update({
+    where: { id: userId },
     data: { photoUrl }
   })
+
+  const provider = await prisma.provider.findUnique({ where: { userId } })
+  if (provider) {
+    await prisma.provider.update({
+      where: { userId },
+      data: { photoUrl }
+    })
+  }
+
+  return { photoUrl }
 }

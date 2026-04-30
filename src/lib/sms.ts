@@ -57,3 +57,7 @@ export function formatOtpMessage(otp: string): string {
 export function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString()
 }
+
+export function formatReceiptSms(data: { businessName: string, receiptNumber: string, totalAmount: number, paymentMethod: string }): string {
+  return `Thank you for your purchase from ${data.businessName}. Receipt ${data.receiptNumber} for KES ${data.totalAmount} paid via ${data.paymentMethod}.`
+}

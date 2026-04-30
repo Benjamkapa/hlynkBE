@@ -46,3 +46,12 @@ export async function sendWelcomeEmail(to: string, name: string, businessName: s
     `,
   })
 }
+
+export async function sendSalesReceiptEmail(to: string, businessName: string, receiptNumber: string, htmlContent: string) {
+  return resend.emails.send({
+    from: FROM,
+    to,
+    subject: `Receipt ${receiptNumber} from ${businessName}`,
+    html: htmlContent,
+  })
+}

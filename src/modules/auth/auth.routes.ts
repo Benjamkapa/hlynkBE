@@ -5,6 +5,7 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  googleAuthSchema,
 } from './auth.schema'
 import * as authService from './auth.service'
 import { authenticate } from '../../middleware/authenticate'
@@ -42,6 +43,13 @@ export async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/reset-password', async (request, reply) => {
     const body = resetPasswordSchema.parse(request.body)
     const result = await authService.resetPassword(body)
+    return reply.send({ success: true, data: result })
+  })
+
+  // POST /api/v1/auth/google
+  fastify.post('/google', async (request, reply) => {
+    const body = googleAuthSchema.parse(request.body)
+    const result = await authService.googleAuth(fastify, body)
     return reply.send({ success: true, data: result })
   })
 

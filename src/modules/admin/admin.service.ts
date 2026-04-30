@@ -26,7 +26,7 @@ export async function getAllTenants(page = 1, limit = 20, search?: string) {
   return { tenants, total, page, limit, pages: Math.ceil(total / limit) }
 }
 
-export async function getSystemStats() {
+export async function getSystemStats(timeframe: 'HOURLY' | 'DAILY' = 'DAILY') {
   const now = new Date();
   const today = new Date(now.setHours(0, 0, 0, 0));
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -84,19 +84,32 @@ export async function getSystemStats() {
     weeklyGrowth.push({ name: `W${8-i}`, value: count });
   }
 
-  // Monthly Revenue (Last 6 months)
-  const monthlyRevenue = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date();
-    d.setMonth(d.getMonth() - i);
-    const monthName = d.toLocaleString('default', { month: 'short' });
-    const start = new Date(d.getFullYear(), d.getMonth(), 1);
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    const sum = await prisma.sale.aggregate({
-      where: { createdAt: { gte: start, lte: end } },
-      _sum: { totalAmount: true }
-    });
-    monthlyRevenue.push({ name: monthName, value: Number(sum._sum.totalAmount || 0) });
+  // Revenue Trend (Hourly or Daily)
+  const revenueTrend = [];
+  if (timeframe === 'HOURLY') {
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date();
+      d.setHours(d.getHours() - i, 0, 0, 0);
+      const end = new Date(d.getTime() + 60 * 60 * 1000 - 1);
+      const sum = await prisma.sale.aggregate({
+        where: { createdAt: { gte: d, lte: end } },
+        _sum: { totalAmount: true }
+      });
+      revenueTrend.push({ name: `${d.getHours()}:00`, value: Number(sum._sum.totalAmount || 0) });
+    }
+  } else {
+    // DAILY (Last 7 days)
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const start = new Date(d.setHours(0, 0, 0, 0));
+      const end = new Date(d.setHours(23, 59, 59, 999));
+      const sum = await prisma.sale.aggregate({
+        where: { createdAt: { gte: start, lte: end } },
+        _sum: { totalAmount: true }
+      });
+      revenueTrend.push({ name: start.toLocaleString('default', { weekday: 'short' }), value: Number(sum._sum.totalAmount || 0) });
+    }
   }
 
   // Active Users per Day (Last 7 days)
@@ -142,7 +155,7 @@ export async function getSystemStats() {
     })),
     trends: {
       weeklyGrowth,
-      monthlyRevenue,
+      revenueTrend,
       dailyActive
     }
   };
@@ -173,3 +186,87 @@ export async function upgradePlan(tenantId: string, planName: 'BASIC' | 'PRO') {
     data: { planName, status: 'ACTIVE', startDate: new Date(), endDate },
   })
 }
+
+// --- Users ---
+export async function getUsers() {
+  return prisma.user.findMany({ select: { id: true, name: true, email: true, phone: true, role: true, photoUrl: true, createdAt: true, tenantId: true } })
+}
+export async function updateUser(id: string, data: any) {
+  return prisma.user.update({ where: { id }, data })
+}
+export async function deleteUser(id: string) {
+  return prisma.user.delete({ where: { id } })
+}
+
+// --- Settings ---
+export async function getSettings() {
+  return prisma.systemSetting.findMany()
+}
+export async function updateSettings(settings: { key: string, value: string, dataType?: string }[]) {
+  const tx = settings.map(s => prisma.systemSetting.upsert({
+    where: { key: s.key },
+    update: { value: s.value, dataType: s.dataType || 'STRING' },
+    create: { key: s.key, value: s.value, dataType: s.dataType || 'STRING' }
+  }))
+  return prisma.$transaction(tx)
+}
+
+// --- Financials ---
+export async function exportFinancials(type: 'SALES' | 'SUBSCRIPTIONS') {
+  if (type === 'SALES') {
+    const sales = await prisma.sale.findMany({ include: { tenant: true } })
+    const csv = ['ID,Tenant,Customer,Amount,Method,Date']
+    sales.forEach(s => csv.push(`${s.id},"${s.tenant.businessName}","${s.customerName || 'N/A'}",${s.totalAmount},${s.paymentMethod},${s.createdAt.toISOString()}`))
+    return csv.join('\n')
+  } else {
+    const subs = await prisma.subscription.findMany({ include: { tenant: true } })
+    const csv = ['ID,Tenant,Plan,Status,StartDate,EndDate']
+    subs.forEach(s => csv.push(`${s.id},"${s.tenant.businessName}",${s.planName},${s.status},${s.startDate.toISOString()},${s.endDate?.toISOString() || ''}`))
+    return csv.join('\n')
+  }
+}
+
+// --- Report Schedules ---
+export async function getSchedules() {
+  return prisma.reportSchedule.findMany()
+}
+export async function createSchedule(data: any) {
+  return prisma.reportSchedule.create({ data })
+}
+export async function updateSchedule(id: string, data: any) {
+  return prisma.reportSchedule.update({ where: { id }, data })
+}
+export async function deleteSchedule(id: string) {
+  return prisma.reportSchedule.delete({ where: { id } })
+}
+
+// --- Dynamic Query Builder ---
+export async function runDynamicQuery({ table, columns, dateRange }: { table: string, columns: string[], dateRange?: { start: string, end: string } }) {
+  // basic robust mapping to avoid raw SQL injection
+  const allowedTables = ['User', 'Tenant', 'Sale', 'Subscription']
+  if (!allowedTables.includes(table)) throw new Error('Invalid table')
+  
+  const where: any = {}
+  if (dateRange && dateRange.start && dateRange.end) {
+    where.createdAt = { gte: new Date(dateRange.start), lte: new Date(dateRange.end) }
+  }
+
+  let results: any[] = []
+  if (table === 'User') results = await prisma.user.findMany({ where })
+  else if (table === 'Tenant') results = await prisma.tenant.findMany({ where })
+  else if (table === 'Sale') results = await prisma.sale.findMany({ where })
+  else if (table === 'Subscription') results = await prisma.subscription.findMany({ where })
+
+  // Map to requested columns
+  if (columns.length > 0) {
+    return results.map(row => {
+      const filtered: any = {}
+      columns.forEach(c => {
+        if (row[c] !== undefined) filtered[c] = row[c]
+      })
+      return filtered
+    })
+  }
+  return results
+}
+

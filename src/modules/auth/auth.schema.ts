@@ -43,3 +43,18 @@ export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>
+
+export const googleAuthSchema = z.object({
+  credential: z.string().min(1, 'Google credential is required'),
+  registration: z.object({
+    businessName: z.string().min(2, 'Business name must be at least 2 characters'),
+    ownerName: z.string().min(2, 'Owner name must be at least 2 characters'),
+    phone: z.string().regex(/^\+?254[17]\d{8}$|^0[17]\d{8}$/, 'Enter a valid Kenyan phone number'),
+    category: z.string().min(1, 'Category is required'),
+    county: z.string().min(1, 'County is required'),
+    location: z.string().min(2, 'Location is required'),
+    planName: z.enum(['TRIAL', 'BASIC']).default('TRIAL'),
+  }).optional(),
+})
+
+export type GoogleAuthInput = z.infer<typeof googleAuthSchema>

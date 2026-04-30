@@ -41,7 +41,8 @@ model User {
   name         String
   phone        String   @unique
   email        String?  @unique
-  passwordHash String
+  photoUrl     String?  @db.LongText
+  passwordHash String?
   role         Role     @default(PROVIDER)
   phoneVerified Boolean @default(false)
   createdAt    DateTime @default(now())
@@ -74,7 +75,7 @@ model Provider {
   location     String   // sub-county / estate free text
   phone        String
   whatsapp     String?
-  photoUrl     String?
+  photoUrl     String?  @db.LongText
   workingHours Json?    // { mon: "8am-6pm", tue: "8am-6pm", ... }
   isVerified   Boolean  @default(false)
   isActive     Boolean  @default(true)
@@ -176,6 +177,7 @@ model Sale {
   updatedAt    DateTime @updatedAt
 
   items        SaleItem[]
+  receipt      Receipt?
 
   @@index([tenantId])
 }
@@ -192,6 +194,25 @@ model SaleItem {
 
   @@index([saleId])
   @@index([productId])
+}
+
+model Receipt {
+  id            String   @id @default(cuid())
+  tenantId      String
+  saleId        String   @unique
+  sale          Sale     @relation(fields: [saleId], references: [id])
+  receiptNumber String   @unique
+  customerName  String?
+  customerPhone String?
+  customerEmail String?
+  htmlContent   String   @db.Text
+  sentEmailAt   DateTime?
+  sentSmsAt     DateTime?
+  sentPhoneAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId])
 }
 
 model Expense {
@@ -248,4 +269,29 @@ enum SubscriptionStatus {
   ACTIVE
   EXPIRED
   SUSPENDED
+}
+
+// ─── Administrator Models ─────────────────────────────────────────────────────
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  dataType  String   @default("STRING") // "BOOLEAN", "NUMBER", "JSON", "STRING"
+  updatedAt DateTime @updatedAt
+}
+
+model ReportSchedule {
+  id         String   @id @default(cuid())
+  name       String
+  table      String   // the DB table being queried
+  columns    String   // JSON string of selected columns array
+  filters    String?  // JSON string of where clauses
+  frequency  String   // "DAILY", "WEEKLY", "MONTHLY"
+  recipients String   // comma-separated emails
+  lastRun    DateTime?
+  nextRun    DateTime?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

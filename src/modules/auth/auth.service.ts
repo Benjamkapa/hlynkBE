@@ -1,5 +1,9 @@
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../lib/prisma'
+import { OAuth2Client } from 'google-auth-library'
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '484330190793-ko7gev05shqsfv32u84s3obkjvmuc4j2.apps.googleusercontent.com')
+
 import { redis, redisKeys } from '../../lib/redis'
 import { sendSms, generateOtp, formatOtpMessage } from '../../lib/sms'
 import { sendWelcomeEmail } from '../../lib/mailer'
@@ -140,10 +144,17 @@ export async function login(fastify: any, input: LoginInput) {
   if (!user) throw { statusCode: 401, message: 'Invalid credentials' }
   if (!user.phoneVerified) throw { statusCode: 403, message: 'Please verify your phone number first' }
 
+  // const valid = await bcrypt.compare(input.password, user.passwordHash)
+  // if (!valid) throw { statusCode: 401, message: 'Invalid credentials' }
+
+  if (!user.passwordHash) {
+    throw { statusCode: 401, message: 'This account was created with Google. Please sign in with Google.' }
+  }
   const valid = await bcrypt.compare(input.password, user.passwordHash)
   if (!valid) throw { statusCode: 401, message: 'Invalid credentials' }
 
   if (!user.tenant.isActive) {
+
     throw { statusCode: 403, message: 'Your account has been suspended. Contact support.' }
   }
 
@@ -187,6 +198,94 @@ export async function resetPassword(input: ResetPasswordInput) {
 export async function logout(userId: string) {
   await redis.del(redisKeys.refreshToken(userId))
   return { message: 'Logged out successfully' }
+}
+
+// ─── Google Auth ─────────────────────────────────────────────────────────────
+export async function googleAuth(fastify: any, input: any) {
+  const ticket = await googleClient.verifyIdToken({
+    idToken: input.credential,
+    audience: process.env.GOOGLE_CLIENT_ID || '484330190793-ko7gev05shqsfv32u84s3obkjvmuc4j2.apps.googleusercontent.com',
+  })
+  
+  const payload = ticket.getPayload()
+  if (!payload || !payload.email) {
+    throw { statusCode: 400, message: 'Invalid Google credential' }
+  }
+  
+  const email = payload.email
+  
+  let user = await prisma.user.findUnique({
+    where: { email },
+    include: { tenant: true },
+  })
+  
+  if (!user) {
+    if (!input.registration) {
+      throw { statusCode: 404, message: 'No account found for this Google email. Please sign up first.' }
+    }
+    
+    // Register new user
+    const phone = normalizePhone(input.registration.phone)
+    const existingPhone = await prisma.user.findUnique({ where: { phone } })
+    if (existingPhone) throw { statusCode: 409, message: 'Phone number already registered to another account' }
+    
+    const slug = await uniqueSlug(input.registration.businessName)
+    const trialEndDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+    
+    const result = await prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({
+        data: { slug, businessName: input.registration.businessName },
+      })
+      
+      const newUser = await tx.user.create({
+        data: {
+          tenantId: tenant.id,
+          name: input.registration.ownerName || payload.name || 'Provider',
+          phone,
+          email,
+          passwordHash: '',
+          role: 'PROVIDER',
+          phoneVerified: true,
+        },
+        include: { tenant: true },
+      })
+      
+      await tx.provider.create({
+        data: {
+          tenantId: tenant.id,
+          userId: newUser.id,
+          businessName: input.registration.businessName,
+          category: input.registration.category,
+          county: input.registration.county,
+          location: input.registration.location,
+          phone,
+        },
+      })
+      
+      await tx.subscription.create({
+        data: {
+          tenantId: tenant.id,
+          planName: input.registration.planName,
+          status: 'TRIAL',
+          trialEndDate,
+        },
+      })
+      
+      return newUser
+    })
+    
+    user = result
+    
+    // Send welcome email
+    sendWelcomeEmail(email, user.name, input.registration.businessName).catch(console.error)
+  }
+  
+  if (!user.tenant.isActive) {
+    throw { statusCode: 403, message: 'Your account has been suspended. Contact support.' }
+  }
+  
+  const { accessToken, refreshToken } = await issueTokens(fastify, user)
+  return { accessToken, refreshToken, user: safeUser(user) }
 }
 
 // ─── Token helpers ────────────────────────────────────────────────────────────

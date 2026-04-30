@@ -1,0 +1,109 @@
+import { prisma } from '../../lib/prisma'
+
+export async function listCustomers(
+  tenantId: string,
+  params: { search?: string; page?: number; limit?: number },
+) {
+  const page = params.page ? Number(params.page) : 1
+  const limit = params.limit ? Number(params.limit) : 50
+  const skip = (page - 1) * limit
+
+  const where: any = { tenantId, role: 'CUSTOMER' }
+  if (params.search) {
+    where.OR = [
+      { name: { contains: params.search, mode: 'insensitive' } },
+      { phone: { contains: params.search } },
+      { email: { contains: params.search } },
+    ]
+  }
+
+  const [users, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.user.count({ where }),
+  ])
+
+  const userIds = users.map((u) => u.id)
+
+  // Aggregate sales stats for these customers in one query
+  const salesAgg = await prisma.sale.groupBy({
+    by: ['customerId'],
+    where: { tenantId, customerId: { in: userIds } },
+    _sum: { totalAmount: true },
+    _max: { createdAt: true },
+  })
+
+  const statsMap = new Map(salesAgg.map((s) => [s.customerId, s]))
+
+  const items = users.map((u) => {
+    const stats = statsMap.get(u.id)
+    return {
+      id: u.id,
+      name: u.name,
+      phone: u.phone,
+      email: u.email,
+      lastVisit: stats?._max.createdAt ?? null,
+      totalSpend: Number(stats?._sum.totalAmount ?? 0),
+      createdAt: u.createdAt,
+    }
+  })
+
+  return { items, total, page, limit }
+}
+
+export async function createCustomer(
+  tenantId: string,
+  data: { name: string; phone: string; email?: string },
+) {
+  const existing = await prisma.user.findFirst({
+    where: { tenantId, phone: data.phone, role: 'CUSTOMER' },
+  })
+  if (existing) {
+    throw { statusCode: 409, message: 'A customer with this phone number already exists' }
+  }
+
+  return prisma.user.create({
+    data: {
+      tenantId,
+      name: data.name,
+      phone: data.phone,
+      email: data.email || null,
+      role: 'CUSTOMER',
+    },
+  })
+}
+
+export async function updateCustomer(
+  id: string,
+  tenantId: string,
+  data: { name?: string; phone?: string; email?: string },
+) {
+  const customer = await prisma.user.findFirst({ where: { id, tenantId, role: 'CUSTOMER' } })
+  if (!customer) throw { statusCode: 404, message: 'Customer not found' }
+
+  return prisma.user.update({
+    where: { id },
+    data: {
+      ...(data.name && { name: data.name }),
+      ...(data.phone && { phone: data.phone }),
+      ...(data.email !== undefined && { email: data.email }),
+    },
+  })
+}
+
+export async function deleteCustomer(id: string, tenantId: string) {
+  const customer = await prisma.user.findFirst({ where: { id, tenantId, role: 'CUSTOMER' } })
+  if (!customer) throw { statusCode: 404, message: 'Customer not found' }
+
+  // Detach from sales before deletion so history is preserved
+  await prisma.sale.updateMany({
+    where: { customerId: id, tenantId },
+    data: { customerId: null },
+  })
+
+  return prisma.user.delete({ where: { id } })
+}
