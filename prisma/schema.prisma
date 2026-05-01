@@ -30,6 +30,7 @@ model Tenant {
   expenses      Expense[]
   logs          ActivityLog[]
   subscription  Subscription?
+  invoices      BillingInvoice[]
 }
 
 // ─── User ────────────────────────────────────────────────────────────────────
@@ -45,11 +46,15 @@ model User {
   passwordHash String?
   role         Role     @default(PROVIDER)
   phoneVerified Boolean @default(false)
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   provider     Provider?
   requests     Request[]  @relation("CustomerRequests")
+  sales        Sale[]     @relation("CustomerSales")
+  operatedSales Sale[]    @relation("UserSales")
+  activities   ActivityLog[]
 
   @@index([tenantId])
 }
@@ -77,6 +82,8 @@ model Provider {
   whatsapp     String?
   photoUrl     String?  @db.LongText
   workingHours Json?    // { mon: "8am-6pm", tue: "8am-6pm", ... }
+  notificationSettings Json? // { emailAlerts: true, smsNotifications: true, ... }
+  operationalSettings  Json? // { taxInclusive: true, autoPrint: false }
   isVerified   Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -151,8 +158,11 @@ model Product {
   tenant      Tenant   @relation(fields: [tenantId], references: [id])
   name        String
   sku         String?
+  category    String?
   description String?  @db.Text
+  imageUrl    String?  @db.LongText
   price       Decimal  @db.Decimal(10, 2)
+  buyingPrice Decimal? @db.Decimal(10, 2)
   stockLevel  Int      @default(0)
   minLevel    Int      @default(5)
   isActive    Boolean  @default(true)
@@ -170,6 +180,10 @@ model Sale {
   id           String   @id @default(cuid())
   tenantId     String
   tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  customerId   String?
+  customer     User?    @relation("CustomerSales", fields: [customerId], references: [id])
+  userId       String?
+  user         User?    @relation("UserSales", fields: [userId], references: [id])
   customerName String?
   totalAmount  Decimal  @db.Decimal(10, 2)
   paymentMethod String  @default("CASH") // CASH, MPESA, CARD
@@ -180,6 +194,7 @@ model Sale {
   receipt      Receipt?
 
   @@index([tenantId])
+  @@index([customerId])
 }
 
 model SaleItem {
@@ -234,11 +249,17 @@ model ActivityLog {
   id        String   @id @default(cuid())
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
   action    String   // "Sale recorded", "Stock updated", etc.
+  logName   String?  // e.g. "Login Request", "Sale recorded"
   details   String?
+  ipAddress String?
+  actionId  String?  // e.g. "#login", "#sale-123"
   createdAt DateTime @default(now())
 
   @@index([tenantId])
+  @@index([userId])
 }
 
 // ─── Subscription ─────────────────────────────────────────────────────────────
@@ -271,6 +292,21 @@ enum SubscriptionStatus {
   SUSPENDED
 }
 
+model BillingInvoice {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  subscriptionId String
+  amount        Decimal  @db.Decimal(10, 2)
+  status        String   @default("PENDING") // PAID, PENDING, FAILED
+  paymentMethod String   @default("MPESA")
+  reference     String?  // M-Pesa Transaction ID
+  billingDate   DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId])
+}
+
 // ─── Administrator Models ─────────────────────────────────────────────────────
 
 model SystemSetting {
@@ -294,4 +330,24 @@ model ReportSchedule {
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model SystemEvent {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  userId     String?
+  level      String   @default("INFO")
+  category   String
+  action     String
+  message    String?  @db.Text
+  method     String?
+  path       String?
+  statusCode Int?
+  durationMs Int?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([category])
+  @@index([createdAt])
 }

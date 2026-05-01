@@ -4,25 +4,59 @@ import { buildReceiptHtml } from '../../lib/receipt'
 import { sendSalesReceiptEmail } from '../../lib/mailer'
 import { formatReceiptSms, sendSms } from '../../lib/sms'
 
-export async function listSales(tenantId: string, params: { search?: string; limit?: number }) {
+export async function listSales(tenantId: string, params: { search?: string; date?: string; limit?: number }) {
   const where: any = { tenantId }
   
+  if (params.search) {
+    where.OR = [
+      { customerName: { contains: params.search } },
+      { paymentMethod: { contains: params.search } }
+    ]
+  }
+
+  if (params.date) {
+    const start = new Date(params.date)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(params.date)
+    end.setHours(23, 59, 59, 999)
+    where.createdAt = {
+      gte: start,
+      lte: end
+    }
+  }
+
   const sales = await prisma.sale.findMany({
     where,
-    include: { items: true },
+    include: { items: true, user: { select: { name: true } } },
     orderBy: { createdAt: 'desc' },
     take: params.limit ? Number(params.limit) : 50
   })
 
-  return { items: sales }
+  // Aggregate stats for the current filter
+  const statsAgg = await prisma.sale.aggregate({
+    where,
+    _sum: { totalAmount: true },
+    _count: { id: true },
+    _avg: { totalAmount: true }
+  })
+
+  return { 
+    items: sales,
+    stats: {
+      totalToday: Number(statsAgg._sum.totalAmount || 0),
+      transactions: statsAgg._count.id || 0,
+      avgSale: Math.round(Number(statsAgg._avg.totalAmount || 0))
+    }
+  }
 }
 
-export async function createSale(tenantId: string, data: any) {
+export async function createSale(tenantId: string, data: any, userId?: string, ipAddress?: string) {
   const {
     items,
     customerName,
     customerPhone,
     customerEmail,
+    customerId,
     totalAmount,
     paymentMethod,
     sendReceiptChannels = [],
@@ -41,6 +75,8 @@ export async function createSale(tenantId: string, data: any) {
     const sale = await tx.sale.create({
       data: {
         tenantId,
+        userId,
+        customerId,
         customerName,
         totalAmount: new Decimal(totalAmount),
         paymentMethod: paymentMethod || 'CASH',
@@ -86,9 +122,13 @@ export async function createSale(tenantId: string, data: any) {
       },
     })
 
-    // 2. Update Stock Levels
+    // 2. Check and Update Stock Levels
     for (const item of items) {
       if (item.productId) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } })
+        if (!product || product.stockLevel < item.quantity) {
+          throw { statusCode: 400, message: `Insufficient stock for ${item.name}. Available: ${product?.stockLevel || 0}` }
+        }
         await tx.product.update({
           where: { id: item.productId },
           data: {
@@ -100,14 +140,22 @@ export async function createSale(tenantId: string, data: any) {
       }
     }
 
-    // 3. Create Activity Log
-    await tx.activityLog.create({
-      data: {
-        tenantId,
-        action: 'Sale recorded',
-        details: `Sale of ${items.length} items for KES ${totalAmount}`
-      }
-    })
+    // 3. Create Activity Log (Non-blocking)
+    try {
+      await tx.activityLog.create({
+        data: {
+          tenantId,
+          userId,
+          action: 'Sale recorded',
+          logName: 'Sale recorded',
+          details: `Sale of ${items.length} items for KES ${totalAmount}`,
+          ipAddress,
+          actionId: `#sale-${sale.id.slice(-6).toUpperCase()}`
+        } as any
+      })
+    } catch (e) {
+      console.error('Audit Log Error:', e)
+    }
 
     return { sale, receipt, providerBusinessName: provider?.businessName || tenant.businessName }
   })
@@ -162,7 +210,7 @@ export async function createSale(tenantId: string, data: any) {
 export async function getSaleDetails(id: string, tenantId: string) {
   return prisma.sale.findFirst({
     where: { id, tenantId },
-    include: { items: true, receipt: true }
+    include: { items: true, receipt: true, user: { select: { name: true } } }
   })
 }
 

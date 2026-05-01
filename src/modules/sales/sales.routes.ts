@@ -12,7 +12,7 @@ export async function salesRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/', { preHandler }, async (request, reply) => {
-    const sale = await salesService.createSale(request.tenantId!, request.body)
+    const sale = await salesService.createSale(request.tenantId!, request.body, request.user.userId, request.ip)
     return reply.send({ success: true, data: sale })
   })
 

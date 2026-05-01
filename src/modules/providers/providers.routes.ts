@@ -25,7 +25,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
   // GET /api/v1/providers/stats
   fastify.get('/stats', { preHandler }, async (request, reply) => {
     const stats = await providerService.getStats(request.tenantId!)
-    return reply.send({ success: true, data: stats })
+    return reply.send({ success: true, ...stats })
   })
 
   // POST /api/v1/providers/me/photo
@@ -41,5 +41,29 @@ export async function providerRoutes(fastify: FastifyInstance) {
       data.mimetype,
     )
     return reply.send({ success: true, data: updated })
+  })
+
+  // PUT /api/v1/providers/me/settings
+  fastify.put('/me/settings', { preHandler: [requireProvider, tenantScope] }, async (request, reply) => {
+    const updated = await providerService.updateSettings(request.user.userId, request.body)
+    return reply.send({ success: true, data: updated })
+  })
+
+  // POST /api/v1/providers/me/security/password
+  fastify.post('/me/security/password', { preHandler: [requireProvider, tenantScope] }, async (request, reply) => {
+    const result = await providerService.changePassword(request.user.userId, request.body)
+    return reply.send(result)
+  })
+
+  // POST /api/v1/providers/me/security/deactivate
+  fastify.post('/me/security/deactivate', { preHandler: [requireProvider, tenantScope] }, async (request, reply) => {
+    const result = await providerService.deactivateAccount(request.user.userId)
+    return reply.send(result)
+  })
+
+  // GET /api/v1/providers/me/activity
+  fastify.get('/me/activity', { preHandler }, async (request, reply) => {
+    const logs = await providerService.getActivityLogs(request.tenantId!, request.query as any)
+    return reply.send({ success: true, ...logs })
   })
 }

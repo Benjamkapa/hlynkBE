@@ -134,7 +134,7 @@ export async function verifyOtp(fastify: any, input: VerifyOtpInput) {
 }
 
 // ─── Login ───────────────────────────────────────────────────────────────────
-export async function login(fastify: any, input: LoginInput) {
+export async function login(fastify: any, input: LoginInput, ipAddress?: string) {
   const phone = normalizePhone(input.phone)
   const user = await prisma.user.findUnique({
     where: { phone },
@@ -144,9 +144,6 @@ export async function login(fastify: any, input: LoginInput) {
   if (!user) throw { statusCode: 401, message: 'Invalid credentials' }
   if (!user.phoneVerified) throw { statusCode: 403, message: 'Please verify your phone number first' }
 
-  // const valid = await bcrypt.compare(input.password, user.passwordHash)
-  // if (!valid) throw { statusCode: 401, message: 'Invalid credentials' }
-
   if (!user.passwordHash) {
     throw { statusCode: 401, message: 'This account was created with Google. Please sign in with Google.' }
   }
@@ -154,11 +151,28 @@ export async function login(fastify: any, input: LoginInput) {
   if (!valid) throw { statusCode: 401, message: 'Invalid credentials' }
 
   if (!user.tenant.isActive) {
-
     throw { statusCode: 403, message: 'Your account has been suspended. Contact support.' }
   }
 
   const { accessToken, refreshToken } = await issueTokens(fastify, user)
+
+  // Log Activity
+  try {
+    await prisma.activityLog.create({
+      data: {
+        tenantId: user.tenantId,
+        userId: user.id,
+        action: 'Login Request',
+        logName: 'Login Request',
+        details: 'User logged in successfully.',
+        ipAddress,
+        actionId: '#login'
+      } as any
+    })
+  } catch (e) {
+    console.error('Login Audit Log Error:', e)
+  }
+
   return { accessToken, refreshToken, user: safeUser(user) }
 }
 

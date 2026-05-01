@@ -70,7 +70,7 @@ export async function getSystemStats(timeframe: 'HOURLY' | 'DAILY' = 'DAILY') {
 
   // Recent Registrations
   const recentRegistrations = await prisma.tenant.findMany({
-    include: { subscription: true, providers: { include: { user: true }, take: 1 } },
+    include: { subscription: true, users: { take: 1 } },
     orderBy: { createdAt: 'desc' },
     take: 5
   });
@@ -148,8 +148,8 @@ export async function getSystemStats(timeframe: 'HOURLY' | 'DAILY' = 'DAILY') {
     recentRegistrations: recentRegistrations.map(t => ({
       id: t.id,
       name: t.businessName,
-      owner: t.providers[0]?.user.name || 'N/A',
-      location: t.providers[0]?.county || 'N/A',
+      owner: t.users[0]?.name || 'N/A',
+      location: 'N/A', // Omitted to avoid provider query crash
       plan: t.subscription?.planName || 'TRIAL',
       date: t.createdAt
     })),
@@ -270,3 +270,53 @@ export async function runDynamicQuery({ table, columns, dateRange }: { table: st
   return results
 }
 
+// --- Subscriptions ---
+export async function getSubscriptions(status?: string) {
+  const where = status ? { status: status as any } : {}
+  return prisma.subscription.findMany({ where, include: { tenant: true }, orderBy: { createdAt: 'desc' } })
+}
+
+// --- System Health ---
+export async function getSystemHealth() {
+  const [dbStatus, memory, errorsLast24h] = await Promise.all([
+    prisma.$queryRaw`SELECT 1`.then(() => 'up').catch(() => 'down'),
+    process.memoryUsage(),
+    prisma.systemEvent.count({
+      where: { level: 'ERROR', createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
+    })
+  ])
+  return {
+    database: dbStatus,
+    api: 'up',
+    errorsLast24h,
+    memoryUsage: Math.round(memory.heapUsed / 1024 / 1024) + 'MB'
+  }
+}
+export async function getAllActivityLogs(params: { page?: number; limit?: number }) {
+  const page = Number(params.page) || 1
+  const limit = Number(params.limit) || 20
+  const skip = (page - 1) * limit
+
+  const [items, total] = await Promise.all([
+    prisma.activityLog.findMany({
+      include: {
+        user: { select: { name: true, email: true, photoUrl: true } },
+        tenant: { select: { businessName: true } }
+      } as any,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit
+    }),
+    prisma.activityLog.count()
+  ])
+
+  return {
+    items,
+    pagination: {
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit)
+    }
+  }
+}

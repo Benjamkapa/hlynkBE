@@ -28,7 +28,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   // POST /api/v1/auth/login
   fastify.post('/login', async (request, reply) => {
     const body = loginSchema.parse(request.body)
-    const result = await authService.login(fastify, body)
+    const result = await authService.login(fastify, body, request.ip)
     return reply.send({ success: true, data: result })
   })
 
@@ -80,6 +80,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         tenantSlug: user.tenant.slug,
         businessName: user.tenant.businessName,
         subscription: user.tenant.subscription,
+        photoUrl: (user as any).photoUrl,
       },
     })
   })

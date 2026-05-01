@@ -13,6 +13,20 @@ export async function adminRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true, data: stats })
   })
 
+  // GET /api/v1/admin/subscriptions
+  fastify.get('/subscriptions', async (request, reply) => {
+    const { status } = request.query as { status?: string }
+    const data = await adminService.getSubscriptions(status)
+    return reply.send({ success: true, data })
+  })
+
+  // GET /api/v1/admin/system-health
+  fastify.get('/system-health', async (_request, reply) => {
+    const data = await adminService.getSystemHealth()
+    return reply.send({ success: true, data })
+  })
+
+
   // GET /api/v1/admin/tenants?page=1&search=mama
   fastify.get('/tenants', async (request, reply) => {
     const { page, limit, search } = request.query as Record<string, string>
@@ -104,5 +118,11 @@ export async function adminRoutes(fastify: FastifyInstance) {
   fastify.post('/reports/query', async (request, reply) => {
     const result = await adminService.runDynamicQuery(request.body as { table: string, columns: string[], dateRange?: { start: string, end: string } })
     return reply.send({ success: true, data: result })
+  })
+
+  // --- Global Activity Logs ---
+  fastify.get('/activity', async (request, reply) => {
+    const logs = await adminService.getAllActivityLogs(request.query as any)
+    return reply.send({ success: true, ...logs })
   })
 }

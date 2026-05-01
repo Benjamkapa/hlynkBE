@@ -46,13 +46,51 @@ export async function listCustomers(
       name: u.name,
       phone: u.phone,
       email: u.email,
-      lastVisit: stats?._max.createdAt ?? null,
-      totalSpend: Number(stats?._sum.totalAmount ?? 0),
+      lastVisit: stats?._max?.createdAt ?? null,
+      totalSpend: Number(stats?._sum?.totalAmount ?? 0),
       createdAt: u.createdAt,
     }
   })
 
-  return { items, total, page, limit }
+  const [totalCount, activeToday, topSpenderAgg] = await Promise.all([
+    prisma.user.count({ where: { tenantId, role: 'CUSTOMER' } }),
+    prisma.sale.groupBy({
+      by: ['customerId'],
+      where: { 
+        tenantId, 
+        createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+        customerId: { not: null }
+      },
+      _count: true
+    }),
+    prisma.sale.groupBy({
+      by: ['customerId'],
+      where: { tenantId, customerId: { not: null } },
+      _sum: { totalAmount: true },
+      orderBy: { _sum: { totalAmount: 'desc' } },
+      take: 1
+    })
+  ])
+
+  let topSpenderName = 'N/A'
+  if (topSpenderAgg.length > 0) {
+    const topUser = await prisma.user.findUnique({
+      where: { id: topSpenderAgg[0].customerId as string }
+    })
+    topSpenderName = topUser?.name || 'N/A'
+  }
+
+  return { 
+    items, 
+    total, 
+    page, 
+    limit,
+    stats: {
+      total: totalCount,
+      activeToday: activeToday.length,
+      topSpender: topSpenderName
+    }
+  }
 }
 
 export async function createCustomer(

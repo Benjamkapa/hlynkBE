@@ -10,6 +10,12 @@ import { providerRoutes } from './modules/providers/providers.routes'
 import { serviceRoutes } from './modules/services/services.routes'
 import { requestRoutes } from './modules/requests/requests.routes'
 import { adminRoutes } from './modules/admin/admin.routes'
+import { inventoryRoutes } from './modules/inventory/inventory.routes'
+import { salesRoutes } from './modules/sales/sales.routes'
+import { expensesRoutes } from './modules/expenses/expenses.routes'
+import { customersRoutes } from './modules/customers/customers.routes'
+import { paymentRoutes } from './modules/payments/payments.routes'
+import { subscriptionRoutes } from './modules/subscriptions/subscriptions.routes'
 
 const app = Fastify({
   logger: {
@@ -53,6 +59,12 @@ async function bootstrap() {
   await app.register(serviceRoutes, { prefix: '/api/v1/services' })
   await app.register(requestRoutes, { prefix: '/api/v1/requests' })
   await app.register(adminRoutes, { prefix: '/api/v1/admin' })
+  await app.register(inventoryRoutes, { prefix: '/api/v1/inventory' })
+  await app.register(salesRoutes, { prefix: '/api/v1/sales' })
+  await app.register(expensesRoutes, { prefix: '/api/v1/expenses' })
+  await app.register(customersRoutes, { prefix: '/api/v1/customers' })
+  await app.register(paymentRoutes, { prefix: '/api/v1/payments' })
+  await app.register(subscriptionRoutes, { prefix: '/api/v1/subscriptions' })
 
   // ─── Global Error Handler ─────────────────────────────────────────────────
   app.setErrorHandler((error, _request, reply) => {

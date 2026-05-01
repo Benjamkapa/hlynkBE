@@ -57,6 +57,7 @@ export async function listProducts(tenantId: string, params: { search?: string; 
     total,
     page: Math.max(page, 1),
     limit,
+    pages: Math.ceil(total / limit),
     stats: {
       totalItems,
       lowStock,
@@ -129,19 +130,11 @@ async function logStockAlertIfNeeded(product: { id: string; name: string; stockL
   const action = product.stockLevel <= 0 ? 'Product out of stock' : 'Low stock detected'
   const message = `${product.name} has ${product.stockLevel} units left`
 
-  await prisma.systemEvent.create({
+  await prisma.activityLog.create({
     data: {
       tenantId,
-      level,
-      category: 'BUSINESS',
-      action,
-      message,
-      metadata: {
-        productId: product.id,
-        productName: product.name,
-        stockLevel: product.stockLevel,
-        minLevel: product.minLevel,
-      },
+      action: `${action}: ${product.name}`,
+      details: `${message}. Min Level: ${product.minLevel}`,
     },
   })
 }
