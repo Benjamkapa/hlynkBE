@@ -27,7 +27,7 @@ export async function subscriptionRoutes(fastify: FastifyInstance) {
 
   // POST /api/v1/subscriptions/change-plan
   fastify.post('/change-plan', { preHandler }, async (request, reply) => {
-    const { planName, phone } = request.body as { planName: 'BASIC' | 'PRO', phone: string }
+    const { planName, phone } = request.body as { planName: 'STARTER' | 'GROWTH' | 'PRO', phone: string }
     const result = await subService.changePlan(request.tenantId!, planName, phone)
     return reply.send(result)
   })

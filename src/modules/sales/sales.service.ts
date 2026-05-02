@@ -70,6 +70,18 @@ export async function createSale(tenantId: string, data: any, userId?: string, i
     if (!tenant) throw { statusCode: 404, message: 'Tenant not found' }
 
     const provider = tenant.providers[0]
+    const opsSettings = (provider as any)?.operationalSettings || { taxInclusive: true, autoPrint: false }
+
+    // Logic: If taxInclusive is false, we might want to ADD 16% VAT to the totalAmount.
+    // For now, we'll just log it and mark it in the metadata or audit.
+    let finalAmount = Number(totalAmount)
+    const taxRate = 0.16
+    const isTaxInclusive = opsSettings.taxInclusive
+    
+    // If not inclusive, we add the tax to the total
+    if (!isTaxInclusive) {
+      finalAmount = finalAmount * (1 + taxRate)
+    }
 
     // 1. Create Sale
     const sale = await tx.sale.create({
@@ -78,7 +90,7 @@ export async function createSale(tenantId: string, data: any, userId?: string, i
         userId,
         customerId,
         customerName,
-        totalAmount: new Decimal(totalAmount),
+        totalAmount: new Decimal(finalAmount),
         paymentMethod: paymentMethod || 'CASH',
         items: {
           create: items.map((item: any) => ({
@@ -101,7 +113,7 @@ export async function createSale(tenantId: string, data: any, userId?: string, i
       customerPhone,
       customerEmail,
       paymentMethod: paymentMethod || 'CASH',
-      totalAmount: Number(totalAmount),
+      totalAmount: Number(finalAmount),
       logoUrl,
       items: items.map((item: any) => ({
         name: item.name,
@@ -148,7 +160,7 @@ export async function createSale(tenantId: string, data: any, userId?: string, i
           userId,
           action: 'Sale recorded',
           logName: 'Sale recorded',
-          details: `Sale of ${items.length} items for KES ${totalAmount}`,
+          details: `Sale of ${items.length} items for KES ${finalAmount} (Tax ${isTaxInclusive ? 'Incl' : 'Excl'})`,
           ipAddress,
           actionId: `#sale-${sale.id.slice(-6).toUpperCase()}`
         } as any

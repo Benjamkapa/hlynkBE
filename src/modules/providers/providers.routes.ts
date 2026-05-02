@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { authenticate, requireProvider } from '../../middleware/authenticate'
+import { authenticate, requireProvider, subscriptionGuard } from '../../middleware/authenticate'
 import { tenantScope } from '../../middleware/tenantScope'
 import * as providerService from './providers.service'
 
 export async function providerRoutes(fastify: FastifyInstance) {
-  const preHandler = [authenticate, tenantScope]
+  const preHandler = [authenticate, subscriptionGuard, tenantScope]
 
   // GET /api/v1/providers/me
   fastify.get('/me', { preHandler }, async (request, reply) => {
@@ -63,7 +63,35 @@ export async function providerRoutes(fastify: FastifyInstance) {
 
   // GET /api/v1/providers/me/activity
   fastify.get('/me/activity', { preHandler }, async (request, reply) => {
-    const logs = await providerService.getActivityLogs(request.tenantId!, request.query as any)
+    const logs = await providerService.getActivityLogs(
+      request.tenantId!, 
+      request.user.userId, 
+      request.user.role, 
+      request.query as any
+    )
     return reply.send({ success: true, ...logs })
+  })
+
+  // --- Staff Management ---
+  fastify.get('/staff', { preHandler }, async (request, reply) => {
+    const staff = await providerService.getStaff(request.tenantId!)
+    return reply.send({ success: true, data: staff })
+  })
+
+  fastify.post('/staff', { preHandler: [requireProvider, tenantScope] }, async (request, reply) => {
+    const staff = await providerService.createStaff(request.tenantId!, request.body)
+    return reply.send({ success: true, data: staff })
+  })
+
+  fastify.put('/staff/:id', { preHandler: [requireProvider, tenantScope] }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const staff = await providerService.updateStaff(request.tenantId!, id, request.body)
+    return reply.send({ success: true, data: staff })
+  })
+
+  fastify.delete('/staff/:id', { preHandler: [requireProvider, tenantScope] }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    await providerService.deleteStaff(request.tenantId!, id)
+    return reply.send({ success: true, message: 'Staff deleted' })
   })
 }

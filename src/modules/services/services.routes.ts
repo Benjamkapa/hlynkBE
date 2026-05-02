@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { requireProvider } from '../../middleware/authenticate'
+import { requireProvider, subscriptionGuard } from '../../middleware/authenticate'
 import { tenantScope } from '../../middleware/tenantScope'
 import * as servicesService from './services.service'
 
 export async function serviceRoutes(fastify: FastifyInstance) {
-  const preHandler = [requireProvider, tenantScope]
+  const preHandler = [requireProvider, subscriptionGuard, tenantScope]
 
   // GET /api/v1/services
   fastify.get('/', { preHandler }, async (request, reply) => {

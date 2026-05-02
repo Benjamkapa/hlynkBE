@@ -11,7 +11,7 @@ export const registerSchema = z.object({
   category: z.string().min(1, 'Category is required'),
   county: z.string().min(1, 'County is required'),
   location: z.string().min(2, 'Location is required'),
-  planName: z.enum(['TRIAL', 'BASIC']).default('TRIAL'),
+  planName: z.enum(['STARTER']).default('STARTER'),
 })
 
 export const verifyOtpSchema = z.object({
@@ -20,8 +20,9 @@ export const verifyOtpSchema = z.object({
 })
 
 export const loginSchema = z.object({
-  phone: z.string().min(1, 'Phone is required'),
+  identifier: z.string().min(1, 'Phone or Email is required'),
   password: z.string().min(1, 'Password is required'),
+  userAgent: z.string().optional(),
 })
 
 export const forgotPasswordSchema = z.object({
@@ -46,6 +47,7 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>
 
 export const googleAuthSchema = z.object({
   credential: z.string().min(1, 'Google credential is required'),
+  userAgent: z.string().optional(),
   registration: z.object({
     businessName: z.string().min(2, 'Business name must be at least 2 characters'),
     ownerName: z.string().min(2, 'Owner name must be at least 2 characters'),
@@ -53,7 +55,7 @@ export const googleAuthSchema = z.object({
     category: z.string().min(1, 'Category is required'),
     county: z.string().min(1, 'County is required'),
     location: z.string().min(2, 'Location is required'),
-    planName: z.enum(['TRIAL', 'BASIC']).default('TRIAL'),
+    planName: z.enum(['STARTER']).default('STARTER'),
   }).optional(),
 })
 

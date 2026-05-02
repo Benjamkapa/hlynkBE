@@ -54,61 +54,69 @@ export async function register(input: RegisterInput) {
   const passwordHash = await bcrypt.hash(input.password, 12)
 
   // Create tenant + user + provider + subscription in one transaction
-  const result = await prisma.$transaction(async (tx) => {
-    const tenant = await tx.tenant.create({
-      data: { slug, businessName: input.businessName },
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({
+        data: { slug, businessName: input.businessName },
+      })
+
+      const user = await tx.user.create({
+        data: {
+          tenantId: tenant.id,
+          name: input.ownerName,
+          phone,
+          email: input.email || null,
+          passwordHash,
+          role: 'PROVIDER',
+        },
+      })
+
+      await tx.provider.create({
+        data: {
+          tenantId: tenant.id,
+          userId: user.id,
+          businessName: input.businessName,
+          category: input.category,
+          county: input.county,
+          location: input.location,
+          phone,
+        },
+      })
+
+      await tx.subscription.create({
+        data: {
+          tenantId: tenant.id,
+          planName: 'STARTER',
+          status: 'TRIAL',
+          isTrial: true,
+          hasUsedTrial: true,
+          trialEndDate,
+          endDate: trialEndDate, 
+        },
+      })
+
+      return { tenant, user }
     })
 
-    const user = await tx.user.create({
-      data: {
-        tenantId: tenant.id,
-        name: input.ownerName,
-        phone,
-        email: input.email || null,
-        passwordHash,
-        role: 'PROVIDER',
-      },
-    })
+    // Send OTP
+    const otp = generateOtp()
+    console.log(`\x1b[33m[DEBUG] OTP for ${phone}: ${otp}\x1b[0m`)
+    await redis.setex(redisKeys.otp(phone), OTP_TTL, otp)
+    await sendSms({ to: phone, message: formatOtpMessage(otp) })
 
-    await tx.provider.create({
-      data: {
-        tenantId: tenant.id,
-        userId: user.id,
-        businessName: input.businessName,
-        category: input.category,
-        county: input.county,
-        location: input.location,
-        phone,
-      },
-    })
+    // Send welcome email if provided
+    if (input.email) {
+      sendWelcomeEmail(input.email, input.ownerName, input.businessName).catch(console.error)
+    }
 
-    await tx.subscription.create({
-      data: {
-        tenantId: tenant.id,
-        planName: 'TRIAL',
-        status: 'TRIAL',
-        trialEndDate,
-      },
-    })
-
-    return { tenant, user }
-  })
-
-  // Send OTP
-  const otp = generateOtp()
-  console.log(`\x1b[33m[DEBUG] OTP for ${phone}: ${otp}\x1b[0m`)
-  await redis.setex(redisKeys.otp(phone), OTP_TTL, otp)
-  await sendSms({ to: phone, message: formatOtpMessage(otp) })
-
-  // Send welcome email if provided
-  if (input.email) {
-    sendWelcomeEmail(input.email, input.ownerName, input.businessName).catch(console.error)
-  }
-
-  return {
-    message: 'Registration successful. Please verify your phone number.',
-    phone,
-    tenantSlug: result.tenant.slug,
+    return {
+      message: 'Registration successful. Please verify your phone number.',
+      phone,
+      tenantSlug: result.tenant.slug,
+    }
+  } catch (error: any) {
+    console.error('[AUTH] Registration error:', error)
+    throw error
   }
 }
 
@@ -135,9 +143,16 @@ export async function verifyOtp(fastify: any, input: VerifyOtpInput) {
 
 // ─── Login ───────────────────────────────────────────────────────────────────
 export async function login(fastify: any, input: LoginInput, ipAddress?: string) {
-  const phone = normalizePhone(input.phone)
-  const user = await prisma.user.findUnique({
-    where: { phone },
+  const { identifier, password } = input
+  
+  // Find user by either email or phone
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: identifier.includes('@') ? identifier.toLowerCase() : undefined },
+        { phone: identifier.includes('@') ? undefined : normalizePhone(identifier) }
+      ].filter(Boolean) as any
+    },
     include: { tenant: true },
   })
 
@@ -154,7 +169,7 @@ export async function login(fastify: any, input: LoginInput, ipAddress?: string)
     throw { statusCode: 403, message: 'Your account has been suspended. Contact support.' }
   }
 
-  const { accessToken, refreshToken } = await issueTokens(fastify, user)
+  const { accessToken, refreshToken } = await issueTokens(fastify, user, input.userAgent, ipAddress)
 
   // Log Activity
   try {
@@ -215,7 +230,7 @@ export async function logout(userId: string) {
 }
 
 // ─── Google Auth ─────────────────────────────────────────────────────────────
-export async function googleAuth(fastify: any, input: any) {
+export async function googleAuth(fastify: any, input: any, ipAddress?: string) {
   const ticket = await googleClient.verifyIdToken({
     idToken: input.credential,
     audience: process.env.GOOGLE_CLIENT_ID || '484330190793-ko7gev05shqsfv32u84s3obkjvmuc4j2.apps.googleusercontent.com',
@@ -230,9 +245,18 @@ export async function googleAuth(fastify: any, input: any) {
   
   let user = await prisma.user.findUnique({
     where: { email },
-    include: { tenant: true },
+    include: { tenant: { include: { subscription: true } } },
   })
-  
+
+  if (user && payload.picture) {
+    // Always update to latest Google photo
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { photoUrl: payload.picture } as any,
+      include: { tenant: { include: { subscription: true } } }
+    }) as any
+  }
+
   if (!user) {
     if (!input.registration) {
       throw { statusCode: 404, message: 'No account found for this Google email. Please sign up first.' }
@@ -260,9 +284,10 @@ export async function googleAuth(fastify: any, input: any) {
           passwordHash: '',
           role: 'PROVIDER',
           phoneVerified: true,
-        },
-        include: { tenant: true },
-      })
+          photoUrl: payload.picture,
+        } as any,
+        include: { tenant: { include: { subscription: true } } },
+      }) as any
       
       await tx.provider.create({
         data: {
@@ -279,32 +304,56 @@ export async function googleAuth(fastify: any, input: any) {
       await tx.subscription.create({
         data: {
           tenantId: tenant.id,
-          planName: input.registration.planName,
+          planName: 'STARTER',
           status: 'TRIAL',
+          isTrial: true,
+          hasUsedTrial: true,
           trialEndDate,
+          endDate: trialEndDate,
         },
       })
       
       return newUser
     })
     
-    user = result
+    user = result as any
     
     // Send welcome email
-    sendWelcomeEmail(email, user.name, input.registration.businessName).catch(console.error)
+    if (user) {
+      sendWelcomeEmail(email, (user as any).name, input.registration.businessName).catch(console.error)
+    }
   }
   
+  if (!user) {
+    throw { statusCode: 500, message: 'Authentication failed: User not found after process.' }
+  }
+
   if (!user.tenant.isActive) {
     throw { statusCode: 403, message: 'Your account has been suspended. Contact support.' }
   }
   
-  const { accessToken, refreshToken } = await issueTokens(fastify, user)
+  const { accessToken, refreshToken } = await issueTokens(fastify, user, input.userAgent, ipAddress)
   return { accessToken, refreshToken, user: safeUser(user) }
 }
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
-async function issueTokens(fastify: any, user: any) {
-  const payload = { userId: user.id, tenantId: user.tenantId, role: user.role }
+async function issueTokens(fastify: any, user: any, userAgent?: string, ipAddress?: string) {
+  // 1. Create session in DB first to get an ID
+  const session = await prisma.session.create({
+    data: {
+      userId: user.id,
+      token: '', // Will update after signing
+      userAgent: userAgent || 'Unknown Device',
+      ipAddress: ipAddress || 'Unknown IP'
+    }
+  })
+
+  const payload = { 
+    userId: user.id, 
+    tenantId: user.tenantId, 
+    role: user.role,
+    sessionId: session.id 
+  }
 
   const accessToken = fastify.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' })
   const refreshToken = fastify.jwt.sign(payload, {
@@ -312,7 +361,13 @@ async function issueTokens(fastify: any, user: any) {
     secret: process.env.JWT_REFRESH_SECRET,
   })
 
-  // Store refresh token in Redis
+  // 2. Update session with the actual refresh token
+  await prisma.session.update({
+    where: { id: session.id },
+    data: { token: refreshToken }
+  })
+
+  // 3. Store refresh token in Redis for quick lookups
   await redis.setex(redisKeys.refreshToken(user.id), 30 * 24 * 60 * 60, refreshToken)
 
   return { accessToken, refreshToken }

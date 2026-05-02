@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { authenticate } from '../../middleware/authenticate'
+import { authenticate, subscriptionGuard } from '../../middleware/authenticate'
 import { tenantScope } from '../../middleware/tenantScope'
 import * as salesService from './sales.service'
 
 export async function salesRoutes(fastify: FastifyInstance) {
-  const preHandler = [authenticate, tenantScope]
+  const preHandler = [authenticate, subscriptionGuard, tenantScope]
 
   fastify.get('/', { preHandler }, async (request, reply) => {
     const data = await salesService.listSales(request.tenantId!, request.query as any)

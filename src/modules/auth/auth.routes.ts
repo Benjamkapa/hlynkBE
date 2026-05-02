@@ -80,6 +80,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         tenantSlug: user.tenant.slug,
         businessName: user.tenant.businessName,
         subscription: user.tenant.subscription,
+        permissions: (user as any).permissions,
         photoUrl: (user as any).photoUrl,
       },
     })

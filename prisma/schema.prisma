@@ -30,7 +30,7 @@ model Tenant {
   expenses      Expense[]
   logs          ActivityLog[]
   subscription  Subscription?
-  invoices      BillingInvoice[]
+  payments      Payment[]
 }
 
 // ─── User ────────────────────────────────────────────────────────────────────
@@ -45,6 +45,7 @@ model User {
   photoUrl     String?  @db.LongText
   passwordHash String?
   role         Role     @default(PROVIDER)
+  permissions  Json?    @default("[]")
   phoneVerified Boolean @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -55,6 +56,7 @@ model User {
   sales        Sale[]     @relation("CustomerSales")
   operatedSales Sale[]    @relation("UserSales")
   activities   ActivityLog[]
+  sessions     Session[]
 
   @@index([tenantId])
 }
@@ -62,6 +64,7 @@ model User {
 enum Role {
   CUSTOMER
   PROVIDER
+  STAFF
   SUPER_ADMIN
 }
 
@@ -268,11 +271,13 @@ model Subscription {
   id           String             @id @default(cuid())
   tenantId     String             @unique
   tenant       Tenant             @relation(fields: [tenantId], references: [id])
-  planName     PlanName           @default(TRIAL)
+  planName     PlanName           @default(STARTER)
   status       SubscriptionStatus @default(TRIAL)
   startDate    DateTime           @default(now())
   endDate      DateTime?
   trialEndDate DateTime
+  isTrial      Boolean            @default(false)
+  hasUsedTrial Boolean            @default(false)
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
@@ -280,8 +285,8 @@ model Subscription {
 }
 
 enum PlanName {
-  TRIAL
-  BASIC
+  STARTER
+  GROWTH
   PRO
 }
 
@@ -292,16 +297,15 @@ enum SubscriptionStatus {
   SUSPENDED
 }
 
-model BillingInvoice {
+model Payment {
   id            String   @id @default(cuid())
   tenantId      String
   tenant        Tenant   @relation(fields: [tenantId], references: [id])
-  subscriptionId String
   amount        Decimal  @db.Decimal(10, 2)
+  plan          PlanName
   status        String   @default("PENDING") // PAID, PENDING, FAILED
-  paymentMethod String   @default("MPESA")
-  reference     String?  // M-Pesa Transaction ID
-  billingDate   DateTime @default(now())
+  mpesaReceipt  String?
+  reference     String?  // M-Pesa Transaction ID / Reference
   createdAt     DateTime @default(now())
 
   @@index([tenantId])
@@ -330,6 +334,20 @@ model ReportSchedule {
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @db.Text
+  userAgent String?
+  ipAddress String?
+  lastActive DateTime @default(now())
+  isActive   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model SystemEvent {

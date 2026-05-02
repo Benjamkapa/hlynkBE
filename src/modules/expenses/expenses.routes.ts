@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { authenticate } from '../../middleware/authenticate'
+import { authenticate, subscriptionGuard } from '../../middleware/authenticate'
 import { tenantScope } from '../../middleware/tenantScope'
 import * as expensesService from './expenses.service'
 
 export async function expensesRoutes(fastify: FastifyInstance) {
-  const preHandler = [authenticate, tenantScope]
+  const preHandler = [authenticate, subscriptionGuard, tenantScope]
 
   fastify.get('/', { preHandler }, async (request, reply) => {
     const data = await expensesService.listExpenses(request.tenantId!, request.query as any)

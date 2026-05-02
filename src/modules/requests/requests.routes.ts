@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { requireProvider } from '../../middleware/authenticate'
+import { requireProvider, subscriptionGuard } from '../../middleware/authenticate'
 import { tenantScope } from '../../middleware/tenantScope'
 import * as requestsService from './requests.service'
 
 export async function requestRoutes(fastify: FastifyInstance) {
-  const preHandler = [requireProvider, tenantScope]
+  const preHandler = [requireProvider, subscriptionGuard, tenantScope]
 
   // GET /api/v1/requests?status=PENDING&page=1
   fastify.get('/', { preHandler }, async (request, reply) => {

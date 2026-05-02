@@ -3,9 +3,9 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { initiateStkPush } from '../../lib/mpesa'
 
 export const PLAN_PRICES = {
-  TRIAL: 0,
-  BASIC: 1000,
-  PRO: 2500
+  STARTER: 1500,
+  GROWTH: 2500,
+  PRO: 5000
 }
 
 export async function getMySubscription(tenantId: string) {
@@ -15,7 +15,7 @@ export async function getMySubscription(tenantId: string) {
 }
 
 export async function getBillingHistory(tenantId: string) {
-  return prisma.billingInvoice.findMany({
+  return prisma.payment.findMany({
     where: { tenantId },
     orderBy: { createdAt: 'desc' }
   })
@@ -26,18 +26,15 @@ export async function initiateRenewal(tenantId: string, phone: string) {
   if (!sub) throw new Error('Subscription not found')
 
   const amount = PLAN_PRICES[sub.planName as keyof typeof PLAN_PRICES]
-  if (amount <= 0) throw new Error('Cannot renew a free trial')
-
   const reference = `SUB-REN-${tenantId.slice(-6).toUpperCase()}`
   
-  // Create a pending invoice
-  const invoice = await prisma.billingInvoice.create({
+  // Create a pending payment
+  const payment = await prisma.payment.create({
     data: {
       tenantId,
-      subscriptionId: sub.id,
       amount: new Decimal(amount),
+      plan: sub.planName,
       status: 'PENDING',
-      paymentMethod: 'MPESA',
       reference
     }
   })
@@ -49,24 +46,23 @@ export async function initiateRenewal(tenantId: string, phone: string) {
     reference
   })
 
-  return { success: true, invoiceId: invoice.id, message: 'STK Push sent to your phone' }
+  return { success: true, paymentId: payment.id, message: 'STK Push sent to your phone' }
 }
 
-export async function changePlan(tenantId: string, planName: 'BASIC' | 'PRO', phone: string) {
+export async function changePlan(tenantId: string, planName: 'GROWTH' | 'PRO' | 'STARTER', phone: string) {
   const sub = await prisma.subscription.findUnique({ where: { tenantId } })
   if (!sub) throw new Error('Subscription not found')
 
   const amount = PLAN_PRICES[planName]
   const reference = `SUB-UPG-${tenantId.slice(-6).toUpperCase()}`
 
-  // Create a pending invoice for the new plan
-  const invoice = await prisma.billingInvoice.create({
+  // Create a pending payment for the new plan
+  const payment = await prisma.payment.create({
     data: {
       tenantId,
-      subscriptionId: sub.id,
       amount: new Decimal(amount),
+      plan: planName,
       status: 'PENDING',
-      paymentMethod: 'MPESA',
       reference
     }
   })
@@ -78,46 +74,48 @@ export async function changePlan(tenantId: string, planName: 'BASIC' | 'PRO', ph
     reference
   })
 
-  return { success: true, invoiceId: invoice.id, message: 'Payment initiated for new plan' }
+  return { success: true, paymentId: payment.id, message: 'Payment initiated for plan upgrade' }
 }
 
 export async function handlePaymentCallback(reference: string, transactionId: string, success: boolean) {
-  const invoice = await prisma.billingInvoice.findFirst({
+  const payment = await prisma.payment.findFirst({
     where: { reference }
   })
 
-  if (!invoice) return
+  if (!payment) return
 
   if (success) {
     await prisma.$transaction(async (tx) => {
-      // 1. Update invoice
-      await tx.billingInvoice.update({
-        where: { id: invoice.id },
-        data: { status: 'PAID', reference: transactionId }
+      // 1. Update payment
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: { status: 'PAID', mpesaReceipt: transactionId, reference: transactionId }
       })
 
       // 2. Update subscription
-      const sub = await tx.subscription.findUnique({ where: { id: invoice.subscriptionId } })
+      const sub = await tx.subscription.findUnique({ where: { tenantId: payment.tenantId } })
       if (!sub) return
 
       // Extend subscription by 30 days
       const currentEnd = sub.endDate && sub.endDate > new Date() ? sub.endDate : new Date()
       const newEnd = new Date(currentEnd)
-      newEnd.setDate(newEnd.getDate() + 30)
+      newEnd.setDate(newEnd.getDate() + 28)
 
       await tx.subscription.update({
         where: { id: sub.id },
         data: {
+          planName: payment.plan,
           status: 'ACTIVE',
           endDate: newEnd,
-          startDate: new Date()
+          startDate: new Date(),
+          isTrial: false // Once they pay, it's no longer a trial
         }
       })
     })
   } else {
-    await prisma.billingInvoice.update({
-      where: { id: invoice.id },
-      data: { status: 'FAILED', reference: transactionId }
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: 'FAILED', mpesaReceipt: transactionId }
     })
   }
 }

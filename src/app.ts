@@ -69,9 +69,20 @@ async function bootstrap() {
   // ─── Global Error Handler ─────────────────────────────────────────────────
   app.setErrorHandler((error, _request, reply) => {
     app.log.error(error)
+
+    // Handle Zod Validation Errors
+    if (error.name === 'ZodError') {
+      const messages = (error as any).issues.map((iss: any) => iss.message).join('. ')
+      return reply.status(400).send({ 
+        success: false, 
+        message: messages || 'Validation failed'
+      })
+    }
+
     if (error.statusCode) {
       return reply.status(error.statusCode).send({ success: false, message: error.message })
     }
+
     return reply.status(500).send({ success: false, message: 'Internal server error' })
   })
 

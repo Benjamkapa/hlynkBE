@@ -15,8 +15,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
   // GET /api/v1/admin/subscriptions
   fastify.get('/subscriptions', async (request, reply) => {
-    const { status } = request.query as { status?: string }
-    const data = await adminService.getSubscriptions(status)
+    const data = await adminService.getSubscriptions(request.query as any)
     return reply.send({ success: true, data })
   })
 
@@ -55,7 +54,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
   // PUT /api/v1/admin/tenants/:id/upgrade
   fastify.put('/tenants/:id/upgrade', async (request, reply) => {
     const { id } = request.params as { id: string }
-    const { planName } = request.body as { planName: 'BASIC' | 'PRO' }
+    const { planName } = request.body as { planName: 'STARTER' | 'GROWTH' | 'PRO' }
     const result = await adminService.upgradePlan(id, planName)
     return reply.send({ success: true, data: result })
   })
@@ -124,5 +123,24 @@ export async function adminRoutes(fastify: FastifyInstance) {
   fastify.get('/activity', async (request, reply) => {
     const logs = await adminService.getAllActivityLogs(request.query as any)
     return reply.send({ success: true, ...logs })
+  })
+
+  // --- Session Management ---
+  fastify.get('/sessions', async (_request, reply) => {
+    const data = await adminService.getGlobalSessions()
+    return reply.send({ success: true, data })
+  })
+
+  fastify.put('/sessions/:id/terminate', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const data = await adminService.terminateSession(id)
+    return reply.send({ success: true, data })
+  })
+
+  // --- User Insights ---
+  fastify.get('/users/:id/activity', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const data = await adminService.getUserActivity(id)
+    return reply.send({ success: true, data })
   })
 }

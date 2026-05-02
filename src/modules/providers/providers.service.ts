@@ -169,14 +169,30 @@ export async function uploadProfilePhoto(userId: string, tenantId: string, buffe
 
   return { photoUrl }
 }
-export async function getActivityLogs(tenantId: string, params: { page?: number; limit?: number }) {
+export async function getActivityLogs(tenantId: string, userId: string, role: string, params: { page?: number; limit?: number }) {
   const page = Number(params.page) || 1
   const limit = Number(params.limit) || 10
   const skip = (page - 1) * limit
 
+  // Visibility logic:
+  // 1. Staff: No access to logs
+  if (role === 'STAFF') {
+    throw { statusCode: 403, message: 'Access Restricted: You do not have permission to view activity logs.' }
+  }
+
+  const where: any = {}
+  
+  // 2. Provider: See all for their tenant
+  if (role === 'PROVIDER') {
+    where.tenantId = tenantId
+  }
+  
+  // 3. Super Admin: See everything globally
+  // (where remains empty or we can filter by tenantId if specifically requested)
+
   const [items, total] = await Promise.all([
     prisma.activityLog.findMany({
-      where: { tenantId },
+      where,
       include: {
         user: {
           select: { name: true, email: true, photoUrl: true }
@@ -186,7 +202,7 @@ export async function getActivityLogs(tenantId: string, params: { page?: number;
       skip,
       take: limit
     }),
-    prisma.activityLog.count({ where: { tenantId } })
+    prisma.activityLog.count({ where })
   ])
 
   return {
@@ -206,5 +222,73 @@ export async function logActivity(tenantId: string, data: { userId?: string, act
       tenantId,
       ...data
     }
+  })
+}
+
+// --- Staff Management ---
+export async function getStaff(tenantId: string) {
+  return prisma.user.findMany({
+    where: { tenantId, role: 'STAFF' },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      role: true,
+      permissions: true,
+      isActive: true,
+      createdAt: true,
+      photoUrl: true
+    }
+  })
+}
+
+export async function createStaff(tenantId: string, data: any) {
+  const { name, phone, email, password, permissions } = data
+  
+  // Check if user already exists
+  const existing = await prisma.user.findFirst({
+    where: { OR: [{ phone }, { email: email || undefined }] }
+  })
+  if (existing) throw new Error('Phone or email already registered')
+
+  const passwordHash = await bcrypt.hash(password, 10)
+
+  return prisma.user.create({
+    data: {
+      tenantId,
+      name,
+      phone,
+      email,
+      passwordHash,
+      role: 'STAFF',
+      permissions: permissions || [],
+      phoneVerified: true // Assume owner verified them
+    }
+  })
+}
+
+export async function updateStaff(tenantId: string, staffId: string, data: any) {
+  const updateData: any = {
+    name: data.name,
+    email: data.email,
+    phone: data.phone,
+    permissions: data.permissions,
+    isActive: data.isActive
+  }
+
+  if (data.password) {
+    updateData.passwordHash = await bcrypt.hash(data.password, 10)
+  }
+
+  return prisma.user.update({
+    where: { id: staffId, tenantId },
+    data: updateData
+  })
+}
+
+export async function deleteStaff(tenantId: string, staffId: string) {
+  return prisma.user.delete({
+    where: { id: staffId, tenantId }
   })
 }
