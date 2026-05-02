@@ -553,12 +553,17 @@ export async function getAllActivityLogs(params: { page?: number; limit?: number
 
 // --- Session Management ---
 export async function getGlobalSessions() {
+  const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
   // @ts-ignore - Temporary cast to bypass IDE cache after prisma generate
   return (prisma as any).session.findMany({
-    where: { isActive: true },
-    include: { user: { select: { name: true, photoUrl: true, phone: true } } },
+    where: { 
+      isActive: true,
+      lastActive: { gte: thirtyMinsAgo },
+      user: { role: { not: 'SUPER_ADMIN' } }
+    },
+    include: { user: { select: { name: true, photoUrl: true, phone: true, role: true } } },
     orderBy: { lastActive: 'desc' },
-    take: 10
+    take: 40
   })
 }
 
