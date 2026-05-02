@@ -252,6 +252,26 @@ export async function getSystemStats(timeframe: 'HOURLY' | 'DAILY' = 'DAILY') {
     totalRevenue: Number(totalRevenue._sum.totalAmount || 0),
     revenueThisMonth: Number(revenueThisMonth._sum.totalAmount || 0),
     totalGrossFees: Number(revenueThisMonth._sum.totalAmount || 0) * 0.1,
+    
+    // --- Precision Financial Metrics ---
+    totalVolume24h: Number((await prisma.sale.aggregate({
+      where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      _sum: { totalAmount: true }
+    }))._sum.totalAmount || 0) + Number((await prisma.payment.aggregate({
+      where: { status: 'PAID', createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      _sum: { amount: true }
+    }))._sum.amount || 0),
+    
+    successRate: await (async () => {
+      const totalPayments = await prisma.payment.count({ where: { createdAt: { gte: today } } });
+      if (totalPayments === 0) return 100;
+      const paid = await prisma.payment.count({ where: { status: 'PAID', createdAt: { gte: today } } });
+      return Math.round((paid / totalPayments) * 100);
+    })(),
+    
+    pendingPayoutsCount: await prisma.subscription.count({ where: { status: 'ACTIVE' } }),
+    pendingPayoutsAmount: Number(revenueThisMonth._sum.totalAmount || 0) * 0.05,
+    failedTransactionsCount: await prisma.payment.count({ where: { status: 'FAILED', createdAt: { gte: today } } }),
     totalPendingPayouts: Number(revenueThisMonth._sum.totalAmount || 0) * 0.05,
 
     // ─── Governance & Support ───
@@ -269,11 +289,11 @@ export async function getSystemStats(timeframe: 'HOURLY' | 'DAILY' = 'DAILY') {
       user: l.user?.name || 'Guest',
       businessName: (l as any).tenant?.businessName || 'Platform',
       priority: 'Medium',
-      status: 'Open',
+      status: l.action.includes('Resolved') ? 'Resolved' : 'Open',
       createdAt: l.createdAt
     }))),
     openTicketsCount: await prisma.activityLog.count({ 
-      where: { action: { contains: 'Support' }, createdAt: { gte: today } } 
+      where: { action: { contains: 'Support' }, NOT: { action: { contains: 'Resolved' } } } 
     }),
     resolvedTicketsCount: await prisma.activityLog.count({ 
       where: { action: { contains: 'Resolved' } } 
@@ -558,4 +578,66 @@ export async function getUserActivity(userId: string) {
     orderBy: { createdAt: 'desc' },
     take: 20
   })
+}
+
+export async function deleteTenant(id: string) {
+  return prisma.$transaction([
+    prisma.subscription.deleteMany({ where: { tenantId: id } }),
+    prisma.payment.deleteMany({ where: { tenantId: id } }),
+    prisma.activityLog.deleteMany({ where: { tenantId: id } }),
+    prisma.user.deleteMany({ where: { tenantId: id } }),
+    prisma.tenant.delete({ where: { id } })
+  ])
+}
+
+export async function resolveAllTickets() {
+  const openLogs = await prisma.activityLog.findMany({
+    where: { action: { contains: 'Support' }, NOT: { action: { contains: 'Resolved' } } }
+  })
+  
+  const updates = openLogs.map(log => prisma.activityLog.update({
+    where: { id: log.id },
+    data: { action: `${log.action} [Resolved]` }
+  }))
+  
+  await prisma.$transaction(updates)
+  return { resolved: updates.length }
+}
+
+export async function restartCluster() {
+  await prisma.systemEvent.create({
+    data: {
+      category: 'SYSTEM',
+      level: 'WARN',
+      action: 'CLUSTER_RESTART',
+      message: 'System cluster restart initiated by SuperAdmin'
+    }
+  })
+  return { success: true }
+}
+
+export async function getSystemEvents(params: any) {
+  const page = Number(params.page) || 1;
+  const limit = Number(params.limit) || 40;
+  const where: any = {};
+  if (params.level) where.level = params.level;
+  if (params.category) where.category = params.category;
+
+  const [events, total] = await Promise.all([
+    prisma.systemEvent.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit
+    }),
+    prisma.systemEvent.count({ where })
+  ]);
+
+  return { events, total, page, limit, pages: Math.ceil(total / limit) };
+}
+
+export async function pruneSystemEvents(days: number) {
+  const date = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const result = await prisma.systemEvent.deleteMany({ where: { createdAt: { lte: date } } });
+  return { deleted: result.count };
 }

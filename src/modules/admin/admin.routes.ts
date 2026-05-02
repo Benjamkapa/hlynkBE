@@ -137,10 +137,34 @@ export async function adminRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true, data })
   })
 
-  // --- User Insights ---
-  fastify.get('/users/:id/activity', async (request, reply) => {
+  // --- Support Management ---
+  fastify.post('/support/resolve-all', async (_request, reply) => {
+    const result = await adminService.resolveAllTickets()
+    return reply.send({ success: true, data: result })
+  })
+
+  // --- Infrastructure Control ---
+  fastify.post('/system/restart', async (_request, reply) => {
+    const result = await adminService.restartCluster()
+    return reply.send({ success: true, data: result })
+  })
+
+  // --- Tenant Lifecycle ---
+  fastify.delete('/tenants/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
-    const data = await adminService.getUserActivity(id)
-    return reply.send({ success: true, data })
+    const result = await adminService.deleteTenant(id)
+    return reply.send({ success: true, data: result })
+  })
+
+  // --- System Telemetry ---
+  fastify.get('/system-events', async (request, reply) => {
+    const result = await adminService.getSystemEvents(request.query as any)
+    return reply.send({ success: true, ...result })
+  })
+
+  fastify.post('/system-events/prune', async (request, reply) => {
+    const { days } = request.body as { days: number }
+    const result = await adminService.pruneSystemEvents(days)
+    return reply.send({ success: true, data: result })
   })
 }
