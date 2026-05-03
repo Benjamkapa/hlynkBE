@@ -9,6 +9,7 @@ import {
 } from './auth.schema'
 import * as authService from './auth.service'
 import { authenticate } from '../../middleware/authenticate'
+import { prisma } from '../../lib/prisma'
 
 export async function authRoutes(fastify: FastifyInstance) {
   // POST /api/v1/auth/register
@@ -61,7 +62,6 @@ export async function authRoutes(fastify: FastifyInstance) {
 
   // GET /api/v1/auth/me  (protected)
   fastify.get('/me', { preHandler: authenticate }, async (request, reply) => {
-    const { prisma } = await import('../../lib/prisma')
     const user = await prisma.user.findUnique({
       where: { id: request.user.userId },
       include: { tenant: { include: { subscription: true } } },
@@ -81,7 +81,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         businessName: user.tenant.businessName,
         subscription: user.tenant.subscription,
         permissions: (user as any).permissions,
-        photoUrl: (user as any).photoUrl,
+        photoUrl: user.photoUrl,
       },
     })
   })

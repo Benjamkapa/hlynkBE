@@ -1,8 +1,9 @@
 import { prisma } from '../../lib/prisma'
 import bcrypt from 'bcryptjs'
+import { encrypt, decrypt } from '../../lib/encryption'
 
 export async function getMyProfile(userId: string) {
-  return prisma.provider.findUnique({
+  const profile = await prisma.provider.findUnique({
     where: { userId },
     include: {
       user: true,
@@ -13,9 +14,28 @@ export async function getMyProfile(userId: string) {
       }
     }
   })
+  
+  if (profile?.operationalSettings) {
+    const ops = profile.operationalSettings as any
+    if (ops.mpesa) {
+      if (ops.mpesa.consumerKey) ops.mpesa.consumerKey = decrypt(ops.mpesa.consumerKey)
+      if (ops.mpesa.consumerSecret) ops.mpesa.consumerSecret = decrypt(ops.mpesa.consumerSecret)
+      if (ops.mpesa.passkey) ops.mpesa.passkey = decrypt(ops.mpesa.passkey)
+    }
+    profile.operationalSettings = ops as any
+  }
+  
+  return profile
 }
 
 export async function updateProfile(userId: string, tenantId: string, data: any) {
+  if (data.operationalSettings?.mpesa) {
+    const mpesa = data.operationalSettings.mpesa
+    if (mpesa.consumerKey && !mpesa.consumerKey.includes(':')) mpesa.consumerKey = encrypt(mpesa.consumerKey)
+    if (mpesa.consumerSecret && !mpesa.consumerSecret.includes(':')) mpesa.consumerSecret = encrypt(mpesa.consumerSecret)
+    if (mpesa.passkey && !mpesa.passkey.includes(':')) mpesa.passkey = encrypt(mpesa.passkey)
+  }
+
   return prisma.$transaction(async (tx) => {
     // 1. Update User record (personal details)
     await tx.user.update({
@@ -72,6 +92,13 @@ export async function deactivateAccount(userId: string) {
 }
 
 export async function updateSettings(userId: string, data: any) {
+  if (data.operationalSettings?.mpesa) {
+    const mpesa = data.operationalSettings.mpesa
+    if (mpesa.consumerKey && !mpesa.consumerKey.includes(':')) mpesa.consumerKey = encrypt(mpesa.consumerKey)
+    if (mpesa.consumerSecret && !mpesa.consumerSecret.includes(':')) mpesa.consumerSecret = encrypt(mpesa.consumerSecret)
+    if (mpesa.passkey && !mpesa.passkey.includes(':')) mpesa.passkey = encrypt(mpesa.passkey)
+  }
+
   return prisma.provider.update({
     where: { userId },
     data: {

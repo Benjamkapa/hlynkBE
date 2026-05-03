@@ -8,7 +8,6 @@ generator client {
 datasource db {
   provider     = "mysql"
   url          = env("DATABASE_URL")
-  relationMode = "prisma"
 }
 
 // ─── Tenant ─────────────────────────────────────────────────────────────────
@@ -190,6 +189,9 @@ model Sale {
   customerName String?
   totalAmount  Decimal  @db.Decimal(10, 2)
   paymentMethod String  @default("CASH") // CASH, MPESA, CARD
+  status       SaleStatus @default(COMPLETED)
+  mpesaReceipt String?
+  mpesaRequestId String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -198,6 +200,14 @@ model Sale {
 
   @@index([tenantId])
   @@index([customerId])
+  @@index([tenantId, createdAt(sort: Desc)])
+}
+
+enum SaleStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
 }
 
 model SaleItem {
@@ -263,6 +273,7 @@ model ActivityLog {
 
   @@index([tenantId])
   @@index([userId])
+  @@index([tenantId, createdAt(sort: Desc)])
 }
 
 // ─── Subscription ─────────────────────────────────────────────────────────────

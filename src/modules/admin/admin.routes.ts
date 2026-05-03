@@ -58,6 +58,25 @@ export async function adminRoutes(fastify: FastifyInstance) {
     const result = await adminService.upgradePlan(id, planName)
     return reply.send({ success: true, data: result })
   })
+
+  // --- Admin Profile ---
+  fastify.put('/me', async (request, reply) => {
+    const updated = await adminService.updateAdminProfile(request.user.userId, request.body)
+    return reply.send({ success: true, data: updated })
+  })
+
+  fastify.post('/me/photo', async (request, reply) => {
+    const data = await request.file()
+    if (!data) return reply.status(400).send({ success: false, message: 'No file uploaded' })
+
+    const buffer = await data.toBuffer()
+    const updated = await adminService.uploadAdminPhoto(
+      request.user.userId,
+      buffer,
+      data.mimetype,
+    )
+    return reply.send({ success: true, data: updated })
+  })
   // --- Users ---
   fastify.get('/users', async (_request, reply) => {
     const data = await adminService.getUsers()

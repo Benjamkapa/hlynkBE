@@ -646,3 +646,26 @@ export async function pruneSystemEvents(days: number) {
   const result = await prisma.systemEvent.deleteMany({ where: { createdAt: { lte: date } } });
   return { deleted: result.count };
 }
+
+// --- Admin Profile ---
+export async function updateAdminProfile(userId: string, data: any) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      name: data.name,
+      email: data.email,
+      phone: data.phone
+    }
+  })
+}
+
+export async function uploadAdminPhoto(userId: string, buffer: Buffer, mimetype: string) {
+  const photoUrl = `data:${mimetype};base64,${buffer.toString('base64')}`
+  
+  await prisma.user.update({
+    where: { id: userId },
+    data: { photoUrl } as any
+  })
+
+  return { photoUrl }
+}

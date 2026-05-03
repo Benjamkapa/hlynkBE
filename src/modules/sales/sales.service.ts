@@ -59,6 +59,8 @@ export async function createSale(tenantId: string, data: any, userId?: string, i
     customerId,
     totalAmount,
     paymentMethod,
+    status,
+    mpesaRequestId,
     sendReceiptChannels = [],
   } = data
 
@@ -92,6 +94,8 @@ export async function createSale(tenantId: string, data: any, userId?: string, i
         customerName,
         totalAmount: new Decimal(finalAmount),
         paymentMethod: paymentMethod || 'CASH',
+        status: status || 'COMPLETED',
+        mpesaRequestId,
         items: {
           create: items.map((item: any) => ({
             productId: item.productId,
@@ -267,4 +271,58 @@ export async function sendSaleReceipt(id: string, tenantId: string, body: any) {
   }
 
   return { message: 'Receipt sent', receiptNumber: sale.receipt.receiptNumber }
+}
+
+import { initiateVendorStkPush } from '../../lib/mpesa'
+
+export async function triggerVendorStkPush(tenantId: string, params: { phone: string; amount: number; reference: string }) {
+  const result = await initiateVendorStkPush(tenantId, params)
+  
+  await prisma.activityLog.create({
+    data: {
+      tenantId,
+      action: 'M-Pesa STK Push Initiated',
+      logName: 'M-Pesa STK Push Initiated',
+      details: `STK push of KES ${params.amount} sent to ${params.phone}.`,
+      actionId: result.CheckoutRequestID || result.MerchantRequestID
+    } as any
+  })
+
+  return result
+}
+
+export async function handleVendorPaymentCallback(CheckoutRequestID: string, MerchantRequestID: string, success: boolean, resultDesc: string) {
+  const sale = await prisma.sale.findFirst({
+    where: { mpesaRequestId: CheckoutRequestID }
+  })
+
+  if (sale) {
+    await prisma.sale.update({
+      where: { id: sale.id },
+      data: {
+        status: success ? 'COMPLETED' : 'FAILED',
+        mpesaReceipt: success ? MerchantRequestID : null
+      } as any
+    })
+    
+    await prisma.activityLog.create({
+      data: {
+        tenantId: sale.tenantId,
+        action: success ? 'M-Pesa Payment Received' : 'M-Pesa Payment Failed',
+        logName: success ? 'M-Pesa Payment Received' : 'M-Pesa Payment Failed',
+        details: `Payment status: ${resultDesc}. Sale #${sale.id.slice(-6)}`,
+        actionId: CheckoutRequestID
+      } as any
+    })
+  } else {
+    // If not found, log a system event
+    await prisma.systemEvent.create({
+      data: {
+        category: 'PAYMENT',
+        action: 'Vendor STK Callback',
+        level: success ? 'INFO' : 'WARN',
+        message: `Vendor payment callback received. Status: ${resultDesc}. Req ID: ${CheckoutRequestID}`,
+      }
+    })
+  }
 }

@@ -26,7 +26,7 @@ async function main() {
     tenant = await prisma.tenant.create({
       data: {
         slug: 'system-admin',
-        businessName: 'HudumaLynk Systems',
+        businessName: 'hlynk Systems',
       }
     })
     console.log('🏢 System Tenant created.')

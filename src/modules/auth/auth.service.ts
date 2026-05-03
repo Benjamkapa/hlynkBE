@@ -249,10 +249,15 @@ export async function googleAuth(fastify: any, input: any, ipAddress?: string) {
   })
 
   if (user && payload.picture) {
-    // Always update to latest Google photo
+    // Always update to latest Google photo for both user and provider
     user = await prisma.user.update({
       where: { id: user.id },
-      data: { photoUrl: payload.picture } as any,
+      data: { 
+        photoUrl: payload.picture,
+        provider: user.role === 'PROVIDER' ? {
+          update: { photoUrl: payload.picture }
+        } : undefined
+      } as any,
       include: { tenant: { include: { subscription: true } } }
     }) as any
   }
@@ -298,6 +303,7 @@ export async function googleAuth(fastify: any, input: any, ipAddress?: string) {
           county: input.registration.county,
           location: input.registration.location,
           phone,
+          photoUrl: payload.picture,
         },
       })
       
@@ -384,5 +390,7 @@ function safeUser(user: any) {
     tenantSlug: user.tenant?.slug,
     businessName: user.tenant?.businessName,
     phoneVerified: user.phoneVerified,
+    photoUrl: user.photoUrl,
+    subscription: user.subscription || user.tenant?.subscription || null
   }
 }
