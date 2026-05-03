@@ -125,7 +125,7 @@ export async function verifyOtp(fastify: any, input: VerifyOtpInput) {
   const phone = normalizePhone(input.phone)
   const stored = await redis.get(redisKeys.otp(phone))
 
-  if (!stored || stored !== input.otp) {
+  if (!stored || String(stored) !== String(input.otp)) {
     throw { statusCode: 400, message: 'Invalid or expired OTP' }
   }
 
@@ -212,7 +212,7 @@ export async function resetPassword(input: ResetPasswordInput) {
   const phone = normalizePhone(input.phone)
   const stored = await redis.get(redisKeys.otp(`reset:${phone}`))
 
-  if (!stored || stored !== input.otp) {
+  if (!stored || String(stored) !== String(input.otp)) {
     throw { statusCode: 400, message: 'Invalid or expired reset code' }
   }
 
