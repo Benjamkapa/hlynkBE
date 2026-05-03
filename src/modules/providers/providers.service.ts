@@ -139,25 +139,44 @@ export async function getStats(tenantId: string) {
     })
   ])
 
-  // Get last 7 days of sales and expenses for the chart
-  const sales7Days = await prisma.$queryRaw`
-    SELECT 
-      DATE_FORMAT(date_list.date, '%a') as name,
-      COALESCE(SUM(s.totalAmount), 0) as sales,
-      COALESCE(SUM(s.totalAmount), 0) - COALESCE((
-        SELECT SUM(amount) FROM Expense 
-        WHERE DATE(date) = date_list.date AND tenantId = ${tenantId}
-      ), 0) as profit
-    FROM (
-      SELECT CURDATE() - INTERVAL (a.a + (10 * b.a)) DAY as date
-      FROM (SELECT 0 as a UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) as a
-      CROSS JOIN (SELECT 0 as a UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) as b
-    ) as date_list
-    LEFT JOIN Sale s ON DATE(s.createdAt) = date_list.date AND s.tenantId = ${tenantId}
-    WHERE date_list.date >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-    GROUP BY date_list.date
-    ORDER BY date_list.date ASC
-  `
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
+  sevenDaysAgo.setHours(0, 0, 0, 0)
+
+  const [recentSales, recentExpenses] = await Promise.all([
+    prisma.sale.findMany({
+      where: { tenantId, createdAt: { gte: sevenDaysAgo } },
+      select: { totalAmount: true, createdAt: true }
+    }),
+    prisma.expense.findMany({
+      where: { tenantId, date: { gte: sevenDaysAgo } },
+      select: { amount: true, date: true }
+    })
+  ])
+
+  // Group by day in JS
+  const salesChart = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    // Adjust for local timezone offset to safely group by day
+    const dateStr = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0]
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'short' })
+
+    const daySales = recentSales
+      .filter(s => new Date(s.createdAt.getTime() - (s.createdAt.getTimezoneOffset() * 60000)).toISOString().split('T')[0] === dateStr)
+      .reduce((sum, s) => sum + Number(s.totalAmount), 0)
+      
+    const dayExpenses = recentExpenses
+      .filter(e => new Date(e.date.getTime() - (e.date.getTimezoneOffset() * 60000)).toISOString().split('T')[0] === dateStr)
+      .reduce((sum, e) => sum + Number(e.amount), 0)
+
+    salesChart.push({
+      name: dayName,
+      sales: daySales,
+      profit: daySales - dayExpenses
+    })
+  }
 
   return {
     dailySales: Number(salesToday._sum.totalAmount || 0),
@@ -165,14 +184,10 @@ export async function getStats(tenantId: string) {
     newCustomers: totalCustomers,
     outOfStockCount: lowStock,
     profit: Number(salesToday._sum.totalAmount || 0) - Number(expensesToday._sum.amount || 0),
-    salesChart: (sales7Days as any[]).map(s => ({
-      name: s.name,
-      sales: Number(s.sales || 0),
-      profit: Number(s.profit || 0)
-    })),
+    salesChart,
     rating: 4.8,
     reviewCount: 12,
-    recentSales: [] // Add empty array if not fetched here
+    recentSales: []
   }
 }
 
