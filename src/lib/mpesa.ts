@@ -20,8 +20,8 @@ const PASSKEY = process.env.MPESA_PASSKEY || 'bfb279f9aa9bdbcf158e97dd71a467cd2e
 
 // CRITICAL: CALLBACK_URL must be a PUBLICLY accessible URL (not localhost)
 // Use ngrok for local testing: e.g. https://xyz.ngrok-free.app
-const CALLBACK_URL = `${process.env.BACKEND_URL || 'http://localhost:3000'}/api/v1/payments/mpesa/callback`
-const VENDOR_CALLBACK_URL = `${process.env.BACKEND_URL || 'http://localhost:3000'}/api/v1/sales/mpesa-callback`
+const CALLBACK_URL = `${process.env.BACKEND_URL}/api/v1/payments/mpesa/callback`
+const VENDOR_CALLBACK_URL = `${process.env.BACKEND_URL}/api/v1/sales/mpesa-callback`
 
 async function getAccessToken() {
   const cacheKey = 'mpesa:global_token'
