@@ -158,13 +158,15 @@ export async function createSale(tenantId: string, data: any, userId?: string, i
 
     // 3. Create Activity Log (Non-blocking)
     try {
+      const totalItemsQuantity = items.reduce((sum: number, item: any) => sum + Number(item.quantity || 1), 0)
+      
       await tx.activityLog.create({
         data: {
           tenantId,
           userId,
           action: 'Sale recorded',
           logName: 'Sale recorded',
-          details: `Sale of ${items.length} items for KES ${finalAmount} (Tax ${isTaxInclusive ? 'Incl' : 'Excl'})`,
+          details: `Sale of ${totalItemsQuantity} items for KES ${finalAmount} (Tax ${isTaxInclusive ? 'Incl' : 'Excl'})`,
           ipAddress,
           actionId: `#sale-${sale.id.slice(-6).toUpperCase()}`
         } as any
@@ -291,17 +293,50 @@ export async function triggerVendorStkPush(tenantId: string, params: { phone: st
   return result
 }
 
-export async function handleVendorPaymentCallback(CheckoutRequestID: string, MerchantRequestID: string, success: boolean, resultDesc: string) {
+export async function handleVendorPaymentCallback(CheckoutRequestID: string, MerchantRequestID: string, success: boolean, resultDesc: string, CallbackMetadata?: any) {
   const sale = await prisma.sale.findFirst({
     where: { mpesaRequestId: CheckoutRequestID }
   })
 
   if (sale) {
+    let customerId = sale.customerId
+    let customerName = sale.customerName
+
+    // If success and we have metadata, try to extract phone and create/link customer
+    if (success && CallbackMetadata?.Item) {
+      const phoneItem = CallbackMetadata.Item.find((i: any) => i.Name === 'PhoneNumber')
+      const phone = phoneItem?.Value ? String(phoneItem.Value) : null
+      
+      if (phone && !customerId) {
+        // Find existing globally
+        let customer = await prisma.user.findUnique({
+          where: { phone }
+        })
+
+        // If no customer exists globally, create one in the current tenant
+        if (!customer) {
+          customer = await prisma.user.create({
+            data: {
+              tenantId: sale.tenantId,
+              name: `Customer ${phone.slice(-6)}`, // Placeholder name since STK push doesn't return names
+              phone,
+              role: 'CUSTOMER'
+            }
+          })
+        }
+        
+        customerId = customer.id
+        customerName = customer.name
+      }
+    }
+
     await prisma.sale.update({
       where: { id: sale.id },
       data: {
         status: success ? 'COMPLETED' : 'FAILED',
-        mpesaReceipt: success ? MerchantRequestID : null
+        mpesaReceipt: success ? MerchantRequestID : null,
+        customerId,
+        customerName
       } as any
     })
     

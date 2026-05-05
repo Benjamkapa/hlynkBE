@@ -56,7 +56,14 @@ export async function authRoutes(fastify: FastifyInstance) {
 
   // POST /api/v1/auth/logout  (protected)
   fastify.post('/logout', { preHandler: authenticate }, async (request, reply) => {
-    const result = await authService.logout(request.user.userId)
+    const result = await authService.logout(request.user.sessionId)
+    return reply.send({ success: true, data: result })
+  })
+
+  // POST /api/v1/auth/refresh
+  fastify.post('/refresh', async (request, reply) => {
+    const { refreshToken } = request.body as { refreshToken: string }
+    const result = await authService.refresh(fastify, refreshToken)
     return reply.send({ success: true, data: result })
   })
 

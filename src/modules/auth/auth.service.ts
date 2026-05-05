@@ -224,9 +224,49 @@ export async function resetPassword(input: ResetPasswordInput) {
 }
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
-export async function logout(userId: string) {
-  await redis.del(redisKeys.refreshToken(userId))
+export async function logout(sessionId: string) {
+  const session = await prisma.session.update({
+    where: { id: sessionId },
+    data: { isActive: false }
+  }).catch(() => null)
+  
+  if (session) {
+    await redis.del(redisKeys.refreshToken(session.userId))
+  }
   return { message: 'Logged out successfully' }
+}
+
+// ─── Refresh Token ───────────────────────────────────────────────────────────
+export async function refresh(fastify: any, refreshToken: string) {
+  try {
+    const decoded: any = fastify.jwt.verify(refreshToken, { secret: process.env.JWT_REFRESH_SECRET })
+    
+    // Verify session
+    const session = await prisma.session.findUnique({ where: { id: decoded.sessionId } })
+    if (!session || !session.isActive || session.token !== refreshToken) {
+      throw new Error('Invalid session')
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      include: { tenant: { include: { subscription: true } } }
+    })
+
+    if (!user || !user.tenant.isActive) throw new Error('Invalid user or suspended')
+
+    // Issue new access token only
+    const payload = { 
+      userId: user.id, 
+      tenantId: user.tenantId, 
+      role: user.role,
+      sessionId: session.id 
+    }
+    const accessToken = fastify.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' })
+
+    return { accessToken }
+  } catch (err) {
+    throw { statusCode: 401, message: 'Invalid or expired refresh token' }
+  }
 }
 
 // ─── Google Auth ─────────────────────────────────────────────────────────────

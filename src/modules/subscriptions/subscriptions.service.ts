@@ -3,9 +3,9 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { initiateStkPush } from '../../lib/mpesa'
 
 export const PLAN_PRICES = {
-  STARTER: 1500,
-  GROWTH: 2500,
-  PRO: 5000
+  STARTER: 1,
+  GROWTH: 2,
+  PRO: 3
 }
 
 export async function getMySubscription(tenantId: string) {

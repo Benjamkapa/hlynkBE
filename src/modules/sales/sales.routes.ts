@@ -56,7 +56,7 @@ export async function salesRoutes(fastify: FastifyInstance) {
     const { ResultCode, ResultDesc, MerchantRequestID, CheckoutRequestID, CallbackMetadata } = Body.stkCallback
     const success = ResultCode === 0
 
-    await salesService.handleVendorPaymentCallback(CheckoutRequestID, MerchantRequestID, success, ResultDesc)
+    await salesService.handleVendorPaymentCallback(CheckoutRequestID, MerchantRequestID, success, ResultDesc, CallbackMetadata)
 
     return reply.send({ ResultCode: 0, ResultDesc: 'Success' })
   })

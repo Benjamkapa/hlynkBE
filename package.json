@@ -29,6 +29,7 @@
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "google-auth-library": "^10.6.2",
+    "minio": "^8.0.7",
     "resend": "^4.0.0",
     "zod": "^3.23.8"
   },

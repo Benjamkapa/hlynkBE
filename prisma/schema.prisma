@@ -167,6 +167,8 @@ model Product {
   buyingPrice Decimal? @db.Decimal(10, 2)
   stockLevel  Int      @default(0)
   minLevel    Int      @default(5)
+  isPerishable Boolean @default(false)
+  expiryDate  DateTime?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

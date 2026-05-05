@@ -8,12 +8,23 @@ export async function listCustomers(
   const limit = params.limit ? Number(params.limit) : 50
   const skip = (page - 1) * limit
 
-  const where: any = { tenantId, role: 'CUSTOMER' }
+  const where: any = {
+    role: 'CUSTOMER',
+    OR: [
+      { tenantId },
+      { sales: { some: { tenantId } } }
+    ]
+  }
+
   if (params.search) {
-    where.OR = [
-      { name: { contains: params.search, mode: 'insensitive' } },
-      { phone: { contains: params.search } },
-      { email: { contains: params.search } },
+    where.AND = [
+      {
+        OR: [
+          { name: { contains: params.search, mode: 'insensitive' } },
+          { phone: { contains: params.search } },
+          { email: { contains: params.search } },
+        ]
+      }
     ]
   }
 
@@ -53,7 +64,7 @@ export async function listCustomers(
   })
 
   const [totalCount, activeToday, topSpenderAgg] = await Promise.all([
-    prisma.user.count({ where: { tenantId, role: 'CUSTOMER' } }),
+    prisma.user.count({ where: { role: 'CUSTOMER', OR: [{ tenantId }, { sales: { some: { tenantId } } }] } }),
     prisma.sale.groupBy({
       by: ['customerId'],
       where: { 
@@ -98,10 +109,18 @@ export async function createCustomer(
   data: { name: string; phone: string; email?: string },
 ) {
   const existing = await prisma.user.findFirst({
-    where: { tenantId, phone: data.phone, role: 'CUSTOMER' },
+    where: { phone: data.phone, role: 'CUSTOMER' },
   })
+  
   if (existing) {
-    throw { statusCode: 409, message: 'A customer with this phone number already exists' }
+    // If exists globally, just update with the new details and return it
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        name: data.name,
+        email: data.email || existing.email
+      }
+    })
   }
 
   return prisma.user.create({
@@ -120,7 +139,13 @@ export async function updateCustomer(
   tenantId: string,
   data: { name?: string; phone?: string; email?: string },
 ) {
-  const customer = await prisma.user.findFirst({ where: { id, tenantId, role: 'CUSTOMER' } })
+  const customer = await prisma.user.findFirst({ 
+    where: { 
+      id, 
+      role: 'CUSTOMER',
+      OR: [{ tenantId }, { sales: { some: { tenantId } } }]
+    } 
+  })
   if (!customer) throw { statusCode: 404, message: 'Customer not found' }
 
   return prisma.user.update({
@@ -134,7 +159,13 @@ export async function updateCustomer(
 }
 
 export async function deleteCustomer(id: string, tenantId: string) {
-  const customer = await prisma.user.findFirst({ where: { id, tenantId, role: 'CUSTOMER' } })
+  const customer = await prisma.user.findFirst({ 
+    where: { 
+      id, 
+      role: 'CUSTOMER',
+      OR: [{ tenantId }, { sales: { some: { tenantId } } }]
+    } 
+  })
   if (!customer) throw { statusCode: 404, message: 'Customer not found' }
 
   // Detach from sales before deletion so history is preserved
@@ -143,5 +174,11 @@ export async function deleteCustomer(id: string, tenantId: string) {
     data: { customerId: null },
   })
 
-  return prisma.user.delete({ where: { id } })
+  // Only delete the actual user record if they belong to this tenant AND have no other sales globally
+  const otherSalesCount = await prisma.sale.count({ where: { customerId: id } })
+  if (customer.tenantId === tenantId && otherSalesCount === 0) {
+    return prisma.user.delete({ where: { id } })
+  }
+  
+  return { message: 'Customer successfully unlinked from your sales history' }
 }
