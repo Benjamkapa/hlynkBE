@@ -3,9 +3,9 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { initiateStkPush } from '../../lib/mpesa'
 
 export const PLAN_PRICES = {
-  STARTER: 1,
-  GROWTH: 2,
-  PRO: 3
+  STARTER: 1600,
+  GROWTH: 2500,
+  PRO: 5000
 }
 
 export async function getMySubscription(tenantId: string) {
@@ -24,6 +24,13 @@ export async function getBillingHistory(tenantId: string) {
 export async function initiateRenewal(tenantId: string, phone: string) {
   const sub = await prisma.subscription.findUnique({ where: { tenantId } })
   if (!sub) throw new Error('Subscription not found')
+
+  if (sub.endDate) {
+    const daysRemaining = Math.ceil((new Date(sub.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    if (daysRemaining > 10) {
+      throw new Error(`You cannot renew right now. Your current plan has ${daysRemaining} days remaining. Renewals are only allowed 10 days or fewer before expiry to prevent stacking.`)
+    }
+  }
 
   const amount = PLAN_PRICES[sub.planName as keyof typeof PLAN_PRICES]
   const reference = `SUB-REN-${tenantId.slice(-6).toUpperCase()}`

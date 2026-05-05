@@ -80,7 +80,9 @@ export async function createProduct(tenantId: string, data: any) {
       sku,
       imageUrl: data.imageUrl || null,
       description: data.description,
-      minLevel: parseInt(data.minLevel) || 5
+      minLevel: parseInt(data.minLevel) || 5,
+      isPerishable: data.isPerishable === true || data.isPerishable === 'true',
+      expiryDate: data.expiryDate ? new Date(data.expiryDate) : null
     }
   })
 
@@ -98,6 +100,9 @@ export async function updateProduct(id: string, tenantId: string, data: any) {
     updateData.stockLevel = parseInt(data.stock)
     delete updateData.stock // Remove the field Prisma doesn't know about
   }
+  
+  if (data.isPerishable !== undefined) updateData.isPerishable = data.isPerishable === true || data.isPerishable === 'true'
+  if (data.expiryDate !== undefined) updateData.expiryDate = data.expiryDate ? new Date(data.expiryDate) : null
 
   const product = await prisma.product.update({
     where: { id, tenantId },

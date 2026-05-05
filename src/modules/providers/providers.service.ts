@@ -143,13 +143,25 @@ export async function getStats(tenantId: string) {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
   sevenDaysAgo.setHours(0, 0, 0, 0)
 
-  const [recentSales, recentExpenses] = await Promise.all([
+  const twentySixDaysAgo = new Date()
+  twentySixDaysAgo.setDate(twentySixDaysAgo.getDate() - 25)
+  twentySixDaysAgo.setHours(0, 0, 0, 0)
+
+  const [recentSales, recentExpenses, aiSales, aiExpenses] = await Promise.all([
     prisma.sale.findMany({
       where: { tenantId, createdAt: { gte: sevenDaysAgo } },
       select: { totalAmount: true, createdAt: true }
     }),
     prisma.expense.findMany({
       where: { tenantId, date: { gte: sevenDaysAgo } },
+      select: { amount: true, date: true }
+    }),
+    prisma.sale.findMany({
+      where: { tenantId, createdAt: { gte: twentySixDaysAgo } },
+      select: { totalAmount: true, createdAt: true }
+    }),
+    prisma.expense.findMany({
+      where: { tenantId, date: { gte: twentySixDaysAgo } },
       select: { amount: true, date: true }
     })
   ])
@@ -185,6 +197,11 @@ export async function getStats(tenantId: string) {
     outOfStockCount: lowStock,
     profit: Number(salesToday._sum.totalAmount || 0) - Number(expensesToday._sum.amount || 0),
     salesChart,
+    aiReportData: {
+      totalSales26Days: aiSales.reduce((sum, s) => sum + Number(s.totalAmount), 0),
+      totalExpenses26Days: aiExpenses.reduce((sum, e) => sum + Number(e.amount), 0),
+      transactionCount26Days: aiSales.length,
+    },
     rating: 4.8,
     reviewCount: 12,
     recentSales: []

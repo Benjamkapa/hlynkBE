@@ -71,7 +71,7 @@ async function main() {
     data.status = 'TRIAL'
     data.trialEndDate = expiryDate
     data.endDate = expiryDate
-    console.log(`- Forcing expiration in 30 seconds...`)
+    console.log(`- Forcing expiration in 20 seconds...`)
   }
 
   // 5. Reset
