@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma'
 
 export async function listCustomers(
   tenantId: string,
-  params: { search?: string; page?: number; limit?: number },
+  params: { search?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: 'asc' | 'desc' },
 ) {
   const page = params.page ? Number(params.page) : 1
   const limit = params.limit ? Number(params.limit) : 50
@@ -28,12 +28,16 @@ export async function listCustomers(
     ]
   }
 
+  const validSortFields = ['name', 'phone', 'email', 'createdAt']
+  const sortBy = params.sortBy && validSortFields.includes(params.sortBy) ? params.sortBy : 'createdAt'
+  const sortOrder = params.sortOrder === 'asc' ? 'asc' : 'desc'
+
   const [users, total] = await Promise.all([
     prisma.user.findMany({
       where,
       skip,
       take: limit,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { [sortBy]: sortOrder },
     }),
     prisma.user.count({ where }),
   ])
@@ -96,6 +100,7 @@ export async function listCustomers(
     total, 
     page, 
     limit,
+    pages: Math.ceil(total / limit),
     stats: {
       total: totalCount,
       activeToday: activeToday.length,

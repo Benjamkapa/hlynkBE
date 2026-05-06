@@ -1,6 +1,47 @@
 import { prisma } from '../../lib/prisma'
 import bcrypt from 'bcryptjs'
 import { encrypt, decrypt } from '../../lib/encryption'
+import { ensureExpiringProductAlerts } from '../inventory/inventory.service'
+
+function decryptOperationalSettings(operationalSettings: any) {
+  if (!operationalSettings) return operationalSettings
+
+  const ops = { ...operationalSettings }
+
+  if (ops.mpesa) {
+    ops.mpesa = { ...ops.mpesa }
+    if (ops.mpesa.consumerKey) ops.mpesa.consumerKey = decrypt(ops.mpesa.consumerKey)
+    if (ops.mpesa.consumerSecret) ops.mpesa.consumerSecret = decrypt(ops.mpesa.consumerSecret)
+    if (ops.mpesa.passkey) ops.mpesa.passkey = decrypt(ops.mpesa.passkey)
+  }
+
+  if (ops.ai) {
+    ops.ai = { ...ops.ai }
+    if (ops.ai.apiKey) ops.ai.apiKey = decrypt(ops.ai.apiKey)
+  }
+
+  return ops
+}
+
+function encryptOperationalSettings(operationalSettings: any) {
+  if (!operationalSettings) return operationalSettings
+
+  const ops = { ...operationalSettings }
+
+  if (ops.mpesa) {
+    ops.mpesa = { ...ops.mpesa }
+    if (ops.mpesa.consumerKey && !ops.mpesa.consumerKey.includes(':')) ops.mpesa.consumerKey = encrypt(ops.mpesa.consumerKey)
+    if (ops.mpesa.consumerSecret && !ops.mpesa.consumerSecret.includes(':')) ops.mpesa.consumerSecret = encrypt(ops.mpesa.consumerSecret)
+    if (ops.mpesa.passkey && !ops.mpesa.passkey.includes(':')) ops.mpesa.passkey = encrypt(ops.mpesa.passkey)
+  }
+
+  if (ops.ai) {
+    ops.ai = { ...ops.ai }
+    if (ops.ai.apiKey && !ops.ai.apiKey.includes(':')) ops.ai.apiKey = encrypt(ops.ai.apiKey)
+  }
+
+  return ops
+}
 
 export async function getMyProfile(userId: string) {
   const profile = await prisma.provider.findUnique({
@@ -16,24 +57,15 @@ export async function getMyProfile(userId: string) {
   })
   
   if (profile?.operationalSettings) {
-    const ops = profile.operationalSettings as any
-    if (ops.mpesa) {
-      if (ops.mpesa.consumerKey) ops.mpesa.consumerKey = decrypt(ops.mpesa.consumerKey)
-      if (ops.mpesa.consumerSecret) ops.mpesa.consumerSecret = decrypt(ops.mpesa.consumerSecret)
-      if (ops.mpesa.passkey) ops.mpesa.passkey = decrypt(ops.mpesa.passkey)
-    }
-    profile.operationalSettings = ops as any
+    profile.operationalSettings = decryptOperationalSettings(profile.operationalSettings) as any
   }
   
   return profile
 }
 
 export async function updateProfile(userId: string, tenantId: string, data: any) {
-  if (data.operationalSettings?.mpesa) {
-    const mpesa = data.operationalSettings.mpesa
-    if (mpesa.consumerKey && !mpesa.consumerKey.includes(':')) mpesa.consumerKey = encrypt(mpesa.consumerKey)
-    if (mpesa.consumerSecret && !mpesa.consumerSecret.includes(':')) mpesa.consumerSecret = encrypt(mpesa.consumerSecret)
-    if (mpesa.passkey && !mpesa.passkey.includes(':')) mpesa.passkey = encrypt(mpesa.passkey)
+  if (data.operationalSettings) {
+    data.operationalSettings = encryptOperationalSettings(data.operationalSettings)
   }
 
   return prisma.$transaction(async (tx) => {
@@ -92,11 +124,8 @@ export async function deactivateAccount(userId: string) {
 }
 
 export async function updateSettings(userId: string, data: any) {
-  if (data.operationalSettings?.mpesa) {
-    const mpesa = data.operationalSettings.mpesa
-    if (mpesa.consumerKey && !mpesa.consumerKey.includes(':')) mpesa.consumerKey = encrypt(mpesa.consumerKey)
-    if (mpesa.consumerSecret && !mpesa.consumerSecret.includes(':')) mpesa.consumerSecret = encrypt(mpesa.consumerSecret)
-    if (mpesa.passkey && !mpesa.passkey.includes(':')) mpesa.passkey = encrypt(mpesa.passkey)
+  if (data.operationalSettings) {
+    data.operationalSettings = encryptOperationalSettings(data.operationalSettings)
   }
 
   return prisma.provider.update({
@@ -109,19 +138,31 @@ export async function updateSettings(userId: string, data: any) {
 }
 
 export async function getStats(tenantId: string) {
-  const [salesToday, expensesToday, lowStock, totalCustomers] = await Promise.all([
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+
+  const twentySixDaysAgo = new Date()
+  twentySixDaysAgo.setDate(twentySixDaysAgo.getDate() - 25)
+  twentySixDaysAgo.setHours(0, 0, 0, 0)
+
+  const [salesToday, dailyTransactions, expensesToday, lowStock, totalCustomers, aiSales, aiExpenses, aiTransactionCount] = await Promise.all([
     prisma.sale.aggregate({
       where: {
         tenantId,
-        createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+        createdAt: { gte: startOfToday }
       },
-      _sum: { totalAmount: true },
-      _count: true
+      _sum: { totalAmount: true }
+    }),
+    prisma.sale.count({
+      where: {
+        tenantId,
+        createdAt: { gte: startOfToday }
+      }
     }),
     prisma.expense.aggregate({
       where: {
         tenantId,
-        date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+        date: { gte: startOfToday }
       },
       _sum: { amount: true }
     }),
@@ -135,6 +176,26 @@ export async function getStats(tenantId: string) {
       where: {
         tenantId,
         role: 'CUSTOMER'
+      }
+    }),
+    prisma.sale.aggregate({
+      where: {
+        tenantId,
+        createdAt: { gte: twentySixDaysAgo }
+      },
+      _sum: { totalAmount: true }
+    }),
+    prisma.expense.aggregate({
+      where: {
+        tenantId,
+        date: { gte: twentySixDaysAgo }
+      },
+      _sum: { amount: true }
+    }),
+    prisma.sale.count({
+      where: {
+        tenantId,
+        createdAt: { gte: twentySixDaysAgo }
       }
     })
   ])
@@ -180,14 +241,19 @@ export async function getStats(tenantId: string) {
 
   return {
     dailySales: Number(salesToday._sum.totalAmount || 0),
-    dailyTransactions: salesToday._count || 0,
+    dailyTransactions,
     newCustomers: totalCustomers,
     outOfStockCount: lowStock,
     profit: Number(salesToday._sum.totalAmount || 0) - Number(expensesToday._sum.amount || 0),
     salesChart,
     rating: 4.8,
     reviewCount: 12,
-    recentSales: []
+    recentSales: [],
+    aiReportData: {
+      totalSales26Days: Number(aiSales._sum.totalAmount || 0),
+      totalExpenses26Days: Number(aiExpenses._sum.amount || 0),
+      transactionCount26Days: aiTransactionCount
+    }
   }
 }
 
@@ -227,6 +293,7 @@ export async function getActivityLogs(tenantId: string, userId: string, role: st
   // 2. Provider: See all for their tenant
   if (role === 'PROVIDER') {
     where.tenantId = tenantId
+    await ensureExpiringProductAlerts(tenantId)
   }
   
   // 3. Super Admin: See everything globally
@@ -332,5 +399,93 @@ export async function updateStaff(tenantId: string, staffId: string, data: any) 
 export async function deleteStaff(tenantId: string, staffId: string) {
   return prisma.user.delete({
     where: { id: staffId, tenantId }
+  })
+}
+
+export async function generateAiReport(tenantId: string, userId: string, data: { prompt: string }) {
+  const provider = await prisma.provider.findFirst({
+    where: { tenantId }
+  })
+
+  if (!provider) throw { statusCode: 404, message: 'Provider not found' }
+
+  const ops = decryptOperationalSettings(provider.operationalSettings)
+  const aiConfig = ops?.ai
+
+  if (!aiConfig || !aiConfig.provider || aiConfig.provider === 'none' || !aiConfig.apiKey) {
+    throw { statusCode: 400, message: 'AI configuration is missing or disabled' }
+  }
+
+  let reportText = ''
+
+  try {
+    if (aiConfig.provider === 'openai') {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${aiConfig.apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: data.prompt }]
+        })
+      })
+      const resData: any = await response.json()
+      if (resData.error) throw new Error(resData.error.message)
+      reportText = resData.choices[0].message.content
+    } else if (aiConfig.provider === 'anthropic') {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': aiConfig.apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: data.prompt }]
+        })
+      })
+      const resData: any = await response.json()
+      if (resData.error) throw new Error(resData.error.message)
+      reportText = resData.content[0].text
+    } else if (aiConfig.provider === 'gemini') {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiConfig.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: data.prompt }] }]
+        })
+      })
+      const resData: any = await response.json()
+      if (resData.error) throw new Error(resData.error.message)
+      reportText = resData.candidates[0].content.parts[0].text
+    } else {
+      throw { statusCode: 400, message: 'Unsupported AI provider' }
+    }
+
+    // Save to database
+    const savedReport = await prisma.aiReport.create({
+      data: {
+        tenantId,
+        providerName: provider.businessName,
+        prompt: data.prompt,
+        report: reportText
+      }
+    })
+
+    return savedReport
+  } catch (err: any) {
+    throw { statusCode: 500, message: 'Failed to generate report: ' + (err.message || 'Unknown error') }
+  }
+}
+
+export async function getAiReports(tenantId: string) {
+  return prisma.aiReport.findMany({
+    where: { tenantId },
+    orderBy: { createdAt: 'desc' },
+    take: 20
   })
 }

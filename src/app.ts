@@ -16,6 +16,7 @@ import { expensesRoutes } from './modules/expenses/expenses.routes'
 import { customersRoutes } from './modules/customers/customers.routes'
 import { paymentRoutes } from './modules/payments/payments.routes'
 import { subscriptionRoutes } from './modules/subscriptions/subscriptions.routes'
+import { platformRoutes } from './modules/platform/platform.routes'
 
 const app = Fastify({
   logger: {
@@ -65,6 +66,7 @@ async function bootstrap() {
   await app.register(customersRoutes, { prefix: '/api/v1/customers' })
   await app.register(paymentRoutes, { prefix: '/api/v1/payments' })
   await app.register(subscriptionRoutes, { prefix: '/api/v1/subscriptions' })
+  await app.register(platformRoutes, { prefix: '/api/v1/platform' })
 
   // ─── Global Error Handler ─────────────────────────────────────────────────
   app.setErrorHandler((error, _request, reply) => {

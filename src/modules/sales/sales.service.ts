@@ -4,7 +4,7 @@ import { buildReceiptHtml } from '../../lib/receipt'
 import { sendSalesReceiptEmail } from '../../lib/mailer'
 import { formatReceiptSms, sendSms } from '../../lib/sms'
 
-export async function listSales(tenantId: string, params: { search?: string; date?: string; limit?: number }) {
+export async function listSales(tenantId: string, params: { search?: string; date?: string; limit?: number; page?: number; sortBy?: string; sortOrder?: 'asc' | 'desc' }) {
   const where: any = { tenantId }
   
   if (params.search) {
@@ -25,11 +25,21 @@ export async function listSales(tenantId: string, params: { search?: string; dat
     }
   }
 
+  const limit = params.limit ? Number(params.limit) : 50
+  const page = params.page ? Number(params.page) : 1
+  const skip = (Math.max(page, 1) - 1) * limit
+
+  const total = await prisma.sale.count({ where })
+  const validSortFields = ['customerName', 'totalAmount', 'paymentMethod', 'status', 'createdAt']
+  const sortBy = params.sortBy && validSortFields.includes(params.sortBy) ? params.sortBy : 'createdAt'
+  const sortOrder = params.sortOrder === 'asc' ? 'asc' : 'desc'
+
   const sales = await prisma.sale.findMany({
     where,
     include: { items: true, user: { select: { name: true } } },
-    orderBy: { createdAt: 'desc' },
-    take: params.limit ? Number(params.limit) : 50
+    orderBy: { [sortBy]: sortOrder },
+    skip,
+    take: limit
   })
 
   // Aggregate stats for the current filter
@@ -42,6 +52,10 @@ export async function listSales(tenantId: string, params: { search?: string; dat
 
   return { 
     items: sales,
+    total,
+    page: Math.max(page, 1),
+    limit,
+    pages: Math.ceil(total / limit),
     stats: {
       totalToday: Number(statsAgg._sum.totalAmount || 0),
       transactions: statsAgg._count.id || 0,

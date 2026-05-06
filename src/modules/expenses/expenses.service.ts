@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { Decimal } from '@prisma/client/runtime/library'
 
-export async function listExpenses(tenantId: string, params: { search?: string; category?: string; limit?: number }) {
+export async function listExpenses(tenantId: string, params: { search?: string; category?: string; limit?: number; page?: number; sortBy?: string; sortOrder?: 'asc' | 'desc' }) {
   const where: any = { tenantId }
   
   if (params.category) {
@@ -12,10 +12,20 @@ export async function listExpenses(tenantId: string, params: { search?: string; 
     where.description = { contains: params.search }
   }
 
+  const limit = params.limit ? Number(params.limit) : 50
+  const page = params.page ? Number(params.page) : 1
+  const skip = (Math.max(page, 1) - 1) * limit
+
+  const total = await prisma.expense.count({ where })
+  const validSortFields = ['category', 'description', 'amount', 'date']
+  const sortBy = params.sortBy && validSortFields.includes(params.sortBy) ? params.sortBy : 'date'
+  const sortOrder = params.sortOrder === 'asc' ? 'asc' : 'desc'
+
   const expenses = await prisma.expense.findMany({
     where,
-    orderBy: { date: 'desc' },
-    take: params.limit ? Number(params.limit) : 50
+    orderBy: { [sortBy]: sortOrder },
+    skip,
+    take: limit
   })
 
   // Calculate real stats
@@ -45,6 +55,10 @@ export async function listExpenses(tenantId: string, params: { search?: string; 
 
   return { 
     items: expenses,
+    total,
+    page: Math.max(page, 1),
+    limit,
+    pages: Math.ceil(total / limit),
     stats: {
       totalExpenses: Number(totalAgg._sum.amount || 0),
       highestCategory: categoryAgg[0]?.category || 'N/A',

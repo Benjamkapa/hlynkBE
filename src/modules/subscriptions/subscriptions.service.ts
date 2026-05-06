@@ -3,9 +3,9 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { initiateStkPush } from '../../lib/mpesa'
 
 export const PLAN_PRICES = {
-  STARTER: 1600,
-  GROWTH: 2500,
-  PRO: 5000
+  STARTER: 1,
+  GROWTH: 1,
+  PRO: 1
 }
 
 export async function getMySubscription(tenantId: string) {
@@ -47,11 +47,18 @@ export async function initiateRenewal(tenantId: string, phone: string) {
   })
 
   // Trigger M-Pesa STK Push
-  await initiateStkPush({
+  const result = await initiateStkPush({
     phone,
     amount,
     reference
   })
+
+  if (result.CheckoutRequestID) {
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: { mpesaReceipt: result.CheckoutRequestID }
+    })
+  }
 
   return { success: true, paymentId: payment.id, message: 'STK Push sent to your phone' }
 }
@@ -75,11 +82,18 @@ export async function changePlan(tenantId: string, planName: 'GROWTH' | 'PRO' | 
   })
 
   // Trigger M-Pesa STK Push
-  await initiateStkPush({
+  const result = await initiateStkPush({
     phone,
     amount,
     reference
   })
+
+  if (result.CheckoutRequestID) {
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: { mpesaReceipt: result.CheckoutRequestID }
+    })
+  }
 
   return { success: true, paymentId: payment.id, message: 'Payment initiated for plan upgrade' }
 }
@@ -103,9 +117,15 @@ export async function handlePaymentCallback(reference: string, transactionId: st
       const sub = await tx.subscription.findUnique({ where: { tenantId: payment.tenantId } })
       if (!sub) return
 
-      // Extend subscription by 30 days
-      const currentEnd = sub.endDate && sub.endDate > new Date() ? sub.endDate : new Date()
-      const newEnd = new Date(currentEnd)
+      // If changing plans, start fresh from today (forfeiting remaining days) to prevent stacking.
+      // If renewing the same plan, extend the current end date.
+      let baseDate = sub.endDate && sub.endDate > new Date() ? sub.endDate : new Date()
+      
+      if (sub.planName !== payment.plan) {
+        baseDate = new Date()
+      }
+
+      const newEnd = new Date(baseDate)
       newEnd.setDate(newEnd.getDate() + 28)
 
       await tx.subscription.update({

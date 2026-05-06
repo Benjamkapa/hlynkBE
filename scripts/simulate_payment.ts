@@ -43,7 +43,7 @@ async function main() {
   }
 
   try {
-    const res = await axios.post('http://localhost:3000/api/v1/payments/mpesa/callback', callbackBody)
+    const res = await axios.post(`${process.env.BACKEND_URL}/api/v1/payments/mpesa/callback`, callbackBody)
     console.log('\x1b[32m%s\x1b[0m', 'Simulation Response:', JSON.stringify(res.data))
     console.log('The account should now be credited! Refresh the portal to see the ACTIVE status.')
   } catch (error: any) {

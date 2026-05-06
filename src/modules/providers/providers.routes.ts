@@ -94,4 +94,15 @@ export async function providerRoutes(fastify: FastifyInstance) {
     await providerService.deleteStaff(request.tenantId!, id)
     return reply.send({ success: true, message: 'Staff deleted' })
   })
+
+  // --- AI Reports ---
+  fastify.post('/ai/report', { preHandler: [requireProvider, tenantScope] }, async (request, reply) => {
+    const report = await providerService.generateAiReport(request.tenantId!, request.user.userId, request.body as { prompt: string })
+    return reply.send({ success: true, data: report })
+  })
+
+  fastify.get('/ai/reports', { preHandler }, async (request, reply) => {
+    const reports = await providerService.getAiReports(request.tenantId!)
+    return reply.send({ success: true, data: reports })
+  })
 }

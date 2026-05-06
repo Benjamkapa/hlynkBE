@@ -30,6 +30,7 @@ model Tenant {
   logs          ActivityLog[]
   subscription  Subscription?
   payments      Payment[]
+  aiReports     AiReport[]
 }
 
 // ─── User ────────────────────────────────────────────────────────────────────
@@ -382,3 +383,19 @@ model SystemEvent {
   @@index([category])
   @@index([createdAt])
 }
+
+// --- AI Report ---------------------------------------------------------------
+
+model AiReport {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  prompt       String   @db.Text
+  report       String   @db.LongText
+  providerName String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+}
+

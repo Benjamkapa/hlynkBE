@@ -67,7 +67,7 @@ async function main() {
 
   // 4. Force Expire
   if (args.includes('--expire')) {
-    const expiryDate = new Date(Date.now() + 20000)
+    const expiryDate = new Date(Date.now() + 40000000)
     data.status = 'TRIAL'
     data.trialEndDate = expiryDate
     data.endDate = expiryDate

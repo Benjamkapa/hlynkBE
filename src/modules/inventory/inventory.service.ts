@@ -1,6 +1,25 @@
 import { prisma } from '../../lib/prisma'
 import { Decimal } from '@prisma/client/runtime/library'
 
+function getStartOfDay(date: Date) {
+  const normalized = new Date(date)
+  normalized.setHours(0, 0, 0, 0)
+  return normalized
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 async function generateProductSku() {
   for (let attempt = 0; attempt < 5; attempt++) {
     const suffix = Math.random().toString(36).slice(2, 8).toUpperCase()
@@ -12,8 +31,11 @@ async function generateProductSku() {
   return `HLI-${Date.now().toString().slice(-8)}`
 }
 
-export async function listProducts(tenantId: string, params: { search?: string; category?: string; limit?: number; page?: number }) {
+export async function listProducts(tenantId: string, params: { search?: string; category?: string; limit?: number; page?: number; filter?: 'all' | 'low-stock' | 'expiring-soon'; sortBy?: string; sortOrder?: 'asc' | 'desc' }) {
   const where: any = { tenantId }
+  const today = getStartOfDay(new Date())
+  const alertStart = addDays(today, 2)
+  const alertEnd = addDays(alertStart, 1)
   
   if (params.search) {
     where.OR = [
@@ -22,15 +44,31 @@ export async function listProducts(tenantId: string, params: { search?: string; 
     ]
   }
 
+  if (params.filter === 'low-stock') {
+    where.stockLevel = { lte: prisma.product.fields.minLevel }
+  }
+
+  if (params.filter === 'expiring-soon') {
+    where.isPerishable = true
+    where.expiryDate = {
+      gte: alertStart,
+      lt: alertEnd
+    }
+  }
+
   const limit = params.limit ? parseInt(params.limit as any) : 50
   const page = params.page ? parseInt(params.page as any) : 1
   const skip = (Math.max(page, 1) - 1) * limit
 
   const total = await prisma.product.count({ where })
 
+  const validSortFields = ['name', 'category', 'stockLevel', 'price', 'buyingPrice', 'createdAt']
+  const sortBy = params.sortBy && validSortFields.includes(params.sortBy) ? params.sortBy : 'createdAt'
+  const sortOrder = params.sortOrder === 'asc' ? 'asc' : 'desc'
+
   const products = await prisma.product.findMany({
     where,
-    orderBy: { createdAt: 'desc' },
+    orderBy: { [sortBy]: sortOrder },
     skip,
     take: limit
   })
@@ -52,6 +90,17 @@ export async function listProducts(tenantId: string, params: { search?: string; 
     }
   })
 
+  const expiringSoon = await prisma.product.count({
+    where: {
+      tenantId,
+      isPerishable: true,
+      expiryDate: {
+        gte: today,
+        lte: addDays(today, 30)
+      }
+    } 
+  })
+
   return {
     items: products,
     total,
@@ -61,6 +110,7 @@ export async function listProducts(tenantId: string, params: { search?: string; 
     stats: {
       totalItems,
       lowStock,
+      expiringSoon,
       totalValue: Number(totalValueRaw._sum.price || 0) * Number(totalValueRaw._sum.stockLevel || 0) // Simplified
     }
   }
@@ -126,6 +176,57 @@ export async function deleteProduct(id: string, tenantId: string) {
   return prisma.product.delete({
     where: { id, tenantId }
   })
+}
+
+export async function ensureExpiringProductAlerts(tenantId: string) {
+  const today = getStartOfDay(new Date())
+  const alertStart = addDays(today, 2)
+  const alertEnd = addDays(alertStart, 1)
+  const alertDateKey = toDateKey(alertStart)
+
+  const expiringProducts = await prisma.product.findMany({
+    where: {
+      tenantId,
+      isActive: true,
+      isPerishable: true,
+      expiryDate: {
+        gte: alertStart,
+        lt: alertEnd
+      }
+    },
+    select: {
+      id: true,
+      name: true,
+      stockLevel: true,
+      expiryDate: true
+    }
+  })
+
+  if (expiringProducts.length === 0) return
+
+  const actionIds = expiringProducts.map((product) => `#product-expiry-${product.id}-${alertDateKey}`)
+  const existingLogs = await prisma.activityLog.findMany({
+    where: {
+      tenantId,
+      actionId: { in: actionIds }
+    },
+    select: { actionId: true }
+  })
+
+  const existingActionIds = new Set(existingLogs.map((log) => log.actionId))
+  const logsToCreate = expiringProducts
+    .filter((product) => !existingActionIds.has(`#product-expiry-${product.id}-${alertDateKey}`))
+    .map((product) => ({
+      tenantId,
+      action: `Product expiring soon: ${product.name}`,
+      logName: 'Expiry alert',
+      details: `${product.name} expires in 2 days on ${product.expiryDate?.toLocaleDateString('en-KE')}. ${product.stockLevel} units remaining.`,
+      actionId: `#product-expiry-${product.id}-${alertDateKey}`
+    }))
+
+  if (logsToCreate.length > 0) {
+    await prisma.activityLog.createMany({ data: logsToCreate })
+  }
 }
 
 async function logStockAlertIfNeeded(product: { id: string; name: string; stockLevel: number; minLevel: number }, tenantId: string) {
