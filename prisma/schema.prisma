@@ -14,7 +14,7 @@ datasource db {
 
 model Tenant {
   id           String   @id @default(cuid())
-  slug         String   @unique // e.g. "mama-njeri" → hudumalynk.com/mama-njeri
+  slug         String   @unique // e.g. "mama-njeri" → hudumalynk.co.ke/mama-njeri
   businessName String
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
