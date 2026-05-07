@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { Decimal } from '@prisma/client/runtime/library'
 import { buildReceiptHtml } from '../../lib/receipt'
-import { sendSalesReceiptEmail } from '../../lib/mailer'
+// import { sendSalesReceiptEmail } from '../../lib/mailer'
 import { formatReceiptSms, sendSms } from '../../lib/sms'
 
 export async function listSales(tenantId: string, params: { search?: string; date?: string; limit?: number; page?: number; sortBy?: string; sortOrder?: 'asc' | 'desc' }) {
@@ -194,7 +194,7 @@ export async function createSale(tenantId: string, data: any, userId?: string, i
 
   if (sendReceiptChannels.includes('email') && customerEmail) {
     try {
-      await sendSalesReceiptEmail(customerEmail, payload.providerBusinessName, payload.receipt.receiptNumber, payload.receipt.htmlContent)
+      // await sendSalesReceiptEmail(customerEmail, payload.providerBusinessName, payload.receipt.receiptNumber, payload.receipt.htmlContent)
       await prisma.receipt.update({
         where: { id: payload.receipt.id },
         data: { sentEmailAt: new Date() },
@@ -259,7 +259,7 @@ export async function sendSaleReceipt(id: string, tenantId: string, body: any) {
   const nextEmail = customerEmail || sale.receipt.customerEmail
 
   if (channels.includes('email') && nextEmail) {
-    await sendSalesReceiptEmail(nextEmail, businessName, sale.receipt.receiptNumber, sale.receipt.htmlContent)
+    // await sendSalesReceiptEmail(nextEmail, businessName, sale.receipt.receiptNumber, sale.receipt.htmlContent)
     await prisma.receipt.update({
       where: { id: sale.receipt.id },
       data: { sentEmailAt: new Date(), customerEmail: nextEmail },

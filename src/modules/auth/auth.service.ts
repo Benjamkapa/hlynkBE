@@ -6,7 +6,7 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '484330190
 
 import { redis, redisKeys } from '../../lib/redis'
 import { sendSms, generateOtp, formatOtpMessage } from '../../lib/sms'
-import { sendWelcomeEmail } from '../../lib/mailer'
+// import { sendWelcomeEmail } from '../../lib/mailer'
 import type {
   RegisterInput,
   VerifyOtpInput,
@@ -105,9 +105,9 @@ export async function register(input: RegisterInput) {
     await sendSms({ to: phone, message: formatOtpMessage(otp) })
 
     // Send welcome email if provided
-    if (input.email) {
-      sendWelcomeEmail(input.email, input.ownerName, input.businessName).catch(console.error)
-    }
+    // if (input.email) {
+    //   sendWelcomeEmail(input.email, input.ownerName, input.businessName).catch(console.error)
+    // }
 
     return {
       message: 'Registration successful. Please verify your phone number.',
@@ -365,9 +365,9 @@ export async function googleAuth(fastify: any, input: any, ipAddress?: string) {
     user = result as any
     
     // Send welcome email
-    if (user) {
-      sendWelcomeEmail(email, (user as any).name, input.registration.businessName).catch(console.error)
-    }
+    // if (user) {
+    //   sendWelcomeEmail(email, (user as any).name, input.registration.businessName).catch(console.error)
+    // }
   }
   
   if (!user) {
