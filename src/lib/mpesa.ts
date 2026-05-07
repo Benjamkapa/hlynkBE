@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { prisma } from './prisma'
 import { decrypt } from './encryption'
-import { redis } from './redis'
+// import { redis } from './redis'
 
 /**
  * M-Pesa Daraja API Integration
@@ -25,8 +25,8 @@ const VENDOR_CALLBACK_URL = `${process.env.BACKEND_URL}/api/v1/sales/mpesa-callb
 
 async function getAccessToken() {
   const cacheKey = 'mpesa:global_token'
-  const cached = await redis.get(cacheKey)
-  if (cached) return cached
+  //  const cached = await redis.get(cacheKey)
+  // if (cached) return cached
 
   const auth = Buffer.from(`${CONSUMER_KEY}:${CONSUMER_SECRET}`).toString('base64')
   try {
@@ -34,7 +34,7 @@ async function getAccessToken() {
       headers: { Authorization: `Basic ${auth}` }
     })
     const token = res.data.access_token
-    await redis.setex(cacheKey, 3300, token)
+    // await redis.setex(cacheKey, 3300, token)
     return token
   } catch (error: any) {
     console.error('[MPESA] Auth Error:', error.response?.data || error.message)
@@ -102,8 +102,8 @@ export async function initiateStkPush(params: { phone: string; amount: number; r
 
 async function getVendorAccessToken(tenantId: string, keys: any) {
   const cacheKey = `mpesa:vendor_token:${tenantId}`
-  const cached = await redis.get(cacheKey)
-  if (cached) return cached
+  // const cached = await redis.get(cacheKey)
+  // if (cached) return cached
 
   const consumerKey = keys.consumerKey.includes(':') ? decrypt(keys.consumerKey) : keys.consumerKey
   const consumerSecret = keys.consumerSecret.includes(':') ? decrypt(keys.consumerSecret) : keys.consumerSecret
@@ -115,7 +115,7 @@ async function getVendorAccessToken(tenantId: string, keys: any) {
       headers: { Authorization: `Basic ${auth}` }
     })
     const token = res.data.access_token
-    await redis.setex(cacheKey, 3300, token)
+    // await redis.setex(cacheKey, 3300, token)
     return token
   } catch (error: any) {
     console.error('[MPESA VENDOR] Auth Error:', error.response?.data || error.message)

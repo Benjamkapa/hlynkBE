@@ -89,7 +89,7 @@ async function bootstrap() {
   })
 
   // ─── Start ────────────────────────────────────────────────────────────────
-  await app.listen({ port: PORT, host: '0.0.0.0' })
+  await app.listen({ port: PORT, host: '127.0.0.1' })
   console.log(`🚀 hlynk API running on http://localhost:${PORT}`)
 }
 

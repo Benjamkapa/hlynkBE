@@ -22,8 +22,8 @@ export async function authRoutes(fastify: FastifyInstance) {
   // POST /api/v1/auth/verify-otp
   fastify.post('/verify-otp', async (request, reply) => {
     const body = verifyOtpSchema.parse(request.body)
-    const result = await authService.verifyOtp(fastify, body)
-    return reply.send({ success: true, data: result })
+    // const result = await authService.verifyOtp(fastify, body)
+    // return reply.send({ success: true, data: result })
   })
 
   // POST /api/v1/auth/login
@@ -36,15 +36,15 @@ export async function authRoutes(fastify: FastifyInstance) {
   // POST /api/v1/auth/forgot-password
   fastify.post('/forgot-password', async (request, reply) => {
     const body = forgotPasswordSchema.parse(request.body)
-    const result = await authService.forgotPassword(body)
-    return reply.send({ success: true, data: result })
+    // const result = await authService.forgotPassword(body)
+    return reply.send({ success: true })
   })
 
   // POST /api/v1/auth/reset-password
   fastify.post('/reset-password', async (request, reply) => {
     const body = resetPasswordSchema.parse(request.body)
-    const result = await authService.resetPassword(body)
-    return reply.send({ success: true, data: result })
+    // const result = await authService.resetPassword(body)
+    return reply.send({ success: true })
   })
 
   // POST /api/v1/auth/google
